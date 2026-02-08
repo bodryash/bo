@@ -1,0 +1,26 @@
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont;
+  background: var(--tg-theme-bg-color, #f5f5f5);
+  color: var(--tg-theme-text-color, #000);
+  padding: 16px;
+}
+
+select {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.time {
+  font-weight: bold;
+}
+
+.room {
+  color: #666;
+}
