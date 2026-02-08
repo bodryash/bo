@@ -1,4 +1,4 @@
- {
+* {
   box-sizing: border-box;
 }
 
@@ -8,10 +8,6 @@ body {
   color: var(--tg-theme-text-color, #111827);
   margin: 0;
   padding: 20px 16px 48px;
-}
-
-html {
-  scroll-behavior: smooth;
 }
 
 #app {
@@ -36,57 +32,30 @@ html {
   color: var(--tg-theme-hint-color, #6b7280);
 }
 
+.course-card {
+  background: var(--tg-theme-secondary-bg-color, #ffffff);
+  border-radius: 18px;
+  padding: 16px;
+  margin-bottom: 24px;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  display: grid;
+  gap: 14px;
+}
+
+.course-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .course {
   margin-bottom: 28px;
-  scroll-margin-top: 110px;
 }
 
 .course-title {
   margin: 0 0 12px;
   font-size: 22px;
-}
-
-.course-nav {
-  position: sticky;
-  top: 12px;
-  z-index: 5;
-  padding: 12px 0 16px;
-  background: linear-gradient(
-    180deg,
-    var(--tg-theme-bg-color, #f5f6fb) 0%,
-    rgba(245, 246, 251, 0.85) 70%,
-    rgba(245, 246, 251, 0) 100%
-  );
-  backdrop-filter: blur(4px);
-}
-
-.course-nav__list {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.course-pill {
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  background: var(--tg-theme-secondary-bg-color, #ffffff);
-  color: inherit;
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.course-pill:hover {
-  border-color: rgba(59, 130, 246, 0.6);
-  color: #2563eb;
-}
-
-.course-pill--active {
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(59, 130, 246, 0.6);
-  color: #2563eb;
 }
 
 .group-grid {
@@ -109,6 +78,16 @@ html {
   font-size: 16px;
   padding-bottom: 8px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  word-break: break-word;
+}
+
+.group-title__text {
+  font-weight: 600;
 }
 
 .day-list {
@@ -155,6 +134,7 @@ html {
 .lesson-subject {
   font-size: 15px;
   font-weight: 600;
+  word-break: break-word;
 }
 
 .lesson-meta {
@@ -216,7 +196,11 @@ html {
     padding: 14px;
   }
 
-  .course-nav {
-    top: 6px;
+  .course-card {
+    padding: 14px;
+  }
+
+  .group-grid {
+    grid-template-columns: 1fr;
   }
 }
