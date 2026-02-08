@@ -1,4 +1,4 @@
-* {
+ {
   box-sizing: border-box;
 }
 
@@ -8,6 +8,10 @@ body {
   color: var(--tg-theme-text-color, #111827);
   margin: 0;
   padding: 20px 16px 48px;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 #app {
@@ -34,11 +38,55 @@ body {
 
 .course {
   margin-bottom: 28px;
+  scroll-margin-top: 110px;
 }
 
 .course-title {
   margin: 0 0 12px;
   font-size: 22px;
+}
+
+.course-nav {
+  position: sticky;
+  top: 12px;
+  z-index: 5;
+  padding: 12px 0 16px;
+  background: linear-gradient(
+    180deg,
+    var(--tg-theme-bg-color, #f5f6fb) 0%,
+    rgba(245, 246, 251, 0.85) 70%,
+    rgba(245, 246, 251, 0) 100%
+  );
+  backdrop-filter: blur(4px);
+}
+
+.course-nav__list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.course-pill {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: var(--tg-theme-secondary-bg-color, #ffffff);
+  color: inherit;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.course-pill:hover {
+  border-color: rgba(59, 130, 246, 0.6);
+  color: #2563eb;
+}
+
+.course-pill--active {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.6);
+  color: #2563eb;
 }
 
 .group-grid {
@@ -166,5 +214,9 @@ body {
 
   .group-card {
     padding: 14px;
+  }
+
+  .course-nav {
+    top: 6px;
   }
 }
