@@ -1,3 +1,7 @@
+document.body.insertAdjacentHTML(
+  "afterbegin",
+  "<div style='background:#000;color:#0f0;padding:10px'>JS VERSION 2025-02-06 LOADED</div>"
+);
 const app = document.getElementById("app");
 
 const WEEKDAY_ORDER = [
@@ -307,3 +311,4 @@ fetch("data/schedule.json", { cache: "no-store" })
   .catch((err) => {
     app.innerHTML = `<p class="error">❌ ${err.message}</p>`;
   });
+
