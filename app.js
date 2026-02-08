@@ -36,6 +36,82 @@ const createBadge = (text) => {
   return badge;
 };
 
+const parseCourseOrder = (name) => {
+  const lower = name.toLowerCase();
+  const isMaster = /магист/.test(lower);
+  const isBachelor = /бакалав/.test(lower);
+  const numberMatch = lower.match(/\d+/);
+  const number = numberMatch ? Number(numberMatch[0]) : 999;
+
+  if (isMaster) {
+    return 100 + number;
+  }
+
+  if (isBachelor || numberMatch) {
+    return number;
+  }
+
+  return 200 + number;
+};
+
+const createCourseNav = (courses) => {
+  const nav = createElement("nav", "course-nav");
+  const list = createElement("div", "course-nav__list");
+
+  courses.forEach((course, index) => {
+    const button = createElement("button", "course-pill", course.label);
+    button.type = "button";
+    button.dataset.target = course.id;
+    if (index === 0) {
+      button.classList.add("course-pill--active");
+    }
+    list.append(button);
+  });
+
+  nav.append(list);
+  return nav;
+};
+
+const setupCourseNav = (nav, sections) => {
+  if (!nav || sections.length === 0) {
+    return;
+  }
+
+  const pills = Array.from(nav.querySelectorAll(".course-pill"));
+  const pillById = new Map(pills.map((pill) => [pill.dataset.target, pill]));
+
+  nav.addEventListener("click", (event) => {
+    const button = event.target.closest(".course-pill");
+    if (!button) {
+      return;
+    }
+    const targetId = button.dataset.target;
+    const section = document.getElementById(targetId);
+    if (section) {
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) {
+          return;
+        }
+        const active = pillById.get(entry.target.id);
+        if (!active) {
+          return;
+        }
+        pills.forEach((pill) => pill.classList.remove("course-pill--active"));
+        active.classList.add("course-pill--active");
+      });
+    },
+    { threshold: 0.4 }
+  );
+
+  sections.forEach((section) => observer.observe(section));
+};
+
 const buildDayList = (days) => {
   const orderedDays = [
     ...WEEKDAY_ORDER.filter((day) => day in days),
@@ -133,7 +209,13 @@ const renderSchedule = (schedule) => {
   const container = createElement("div", "container");
   container.append(header);
 
-  const courses = Object.keys(schedule).sort((a, b) => a.localeCompare(b));
+  const courses = Object.keys(schedule)
+    .sort((a, b) => parseCourseOrder(a) - parseCourseOrder(b))
+    .map((courseName, index) => ({
+      name: courseName,
+      id: `course-${index + 1}`,
+      label: courseName,
+    }));
   if (courses.length === 0) {
     container.append(
       createElement("p", "empty", "Пока нет данных по расписанию.")
@@ -142,11 +224,20 @@ const renderSchedule = (schedule) => {
     return;
   }
 
-  courses.forEach((courseName) => {
-    const courseSection = createElement("section", "course");
-    courseSection.append(createElement("h2", "course-title", courseName));
+  const nav = createCourseNav(courses);
+  container.append(nav);
 
-    const groups = schedule[courseName];
+  const sections = [];
+
+  courses.forEach((course, index) => {
+    const courseSection = createElement("section", "course");
+    courseSection.id = course.id;
+    if (index === 0) {
+      courseSection.classList.add("course--active");
+    }
+    courseSection.append(createElement("h2", "course-title", course.name));
+
+    const groups = schedule[course.name];
     const groupNames = Object.keys(groups).sort((a, b) =>
       a.localeCompare(b, "ru", { numeric: true })
     );
@@ -178,9 +269,11 @@ const renderSchedule = (schedule) => {
 
     courseSection.append(groupGrid);
     container.append(courseSection);
+    sections.push(courseSection);
   });
 
   app.append(container);
+  setupCourseNav(nav, sections);
 };
 
 app.innerHTML = "<p class='loading'>⏳ Загружаем расписание...</p>";
