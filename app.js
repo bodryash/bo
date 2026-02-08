@@ -78,6 +78,45 @@ const buildDayList = (days) => {
   return dayList;
 };
 
+const sanitizeJson = (raw) => {
+  const withoutBom = raw.replace(/^\uFEFF/, "").trim();
+  const firstBrace = withoutBom.search(/[\[{]/);
+  const lastBrace = Math.max(
+    withoutBom.lastIndexOf("}"),
+    withoutBom.lastIndexOf("]")
+  );
+
+  if (firstBrace === -1 || lastBrace === -1) {
+    return withoutBom;
+  }
+
+  const sliced = withoutBom.slice(firstBrace, lastBrace + 1);
+  const withoutComments = sliced
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  return withoutComments.replace(/,\s*([}\]])/g, "$1");
+};
+
+const getJsonErrorLocation = (text, error) => {
+  const match = /position\s+(\d+)/i.exec(error.message || "");
+  if (!match) {
+    return "";
+  }
+
+  const index = Number(match[1]);
+  if (Number.isNaN(index)) {
+    return "";
+  }
+
+  const upToIndex = text.slice(0, index);
+  const lines = upToIndex.split("\n");
+  const line = lines.length;
+  const column = lines[lines.length - 1].length + 1;
+
+  return ` Ошибка на строке ${line}, столбце ${column}.`;
+};
+
 const renderSchedule = (schedule) => {
   app.innerHTML = "";
 
@@ -94,7 +133,7 @@ const renderSchedule = (schedule) => {
   const container = createElement("div", "container");
   container.append(header);
 
-  const courses = Object.keys(schedule);
+  const courses = Object.keys(schedule).sort((a, b) => a.localeCompare(b));
   if (courses.length === 0) {
     container.append(
       createElement("p", "empty", "Пока нет данных по расписанию.")
@@ -108,7 +147,9 @@ const renderSchedule = (schedule) => {
     courseSection.append(createElement("h2", "course-title", courseName));
 
     const groups = schedule[courseName];
-    const groupNames = Object.keys(groups);
+    const groupNames = Object.keys(groups).sort((a, b) =>
+      a.localeCompare(b, "ru", { numeric: true })
+    );
 
     if (groupNames.length === 0) {
       courseSection.append(
@@ -144,18 +185,31 @@ const renderSchedule = (schedule) => {
 
 app.innerHTML = "<p class='loading'>⏳ Загружаем расписание...</p>";
 
-fetch("data/schedule.json")
+fetch("data/schedule.json", { cache: "no-store" })
   .then((res) => {
     if (!res.ok) {
       throw new Error("schedule.json не найден");
     }
-    return res.json();
+    return res.text();
   })
-  .then((schedule) => {
-    if (!schedule || typeof schedule !== "object") {
+  .then((rawText) => {
+    const sanitized = sanitizeJson(rawText);
+    let parsed;
+
+    try {
+      parsed = JSON.parse(sanitized);
+    } catch (error) {
+      const details = getJsonErrorLocation(sanitized, error);
+      throw new Error(
+        `Некорректный формат расписания.${details} Проверьте JSON в data/schedule.json.`
+      );
+    }
+
+    if (!parsed || typeof parsed !== "object") {
       throw new Error("Некорректный формат расписания");
     }
-    renderSchedule(schedule);
+
+    renderSchedule(parsed);
   })
   .catch((err) => {
     app.innerHTML = `<p class="error">❌ ${err.message}</p>`;
