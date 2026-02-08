@@ -4,23 +4,27 @@ app.innerHTML = "<p>⏳ Загружаем расписание...</p>";
 
 fetch("data/schedule.json")
   .then((res) => {
-    if (!res.ok) throw new Error("schedule.json не найден");
+    if (!res.ok) {
+      throw new Error("schedule.json не найден");
+    }
     return res.json();
   })
   .then((schedule) => {
     const course = "1 курс";
     const group = "101";
 
-    const days = schedule?.[course]?.[group];
-    if (!days) {
+    if (!schedule[course] || !schedule[course][group]) {
       app.innerHTML = "<p>❌ Нет данных для 1 курса, группы 101</p>";
       return;
     }
 
-    let html = `<div class="card">
-      <h2>📚 ${course}</h2>
-      <h3>👥 Группа ${group}</h3>
+    let html = `
+      <div class="card">
+        <h2>📚 ${course}</h2>
+        <h3>👥 Группа ${group}</h3>
     `;
+
+    const days = schedule[course][group];
 
     for (const day in days) {
       html += `<h4>${day}</h4>`;
@@ -47,3 +51,4 @@ fetch("data/schedule.json")
   .catch((err) => {
     app.innerHTML = `<p style="color:red">❌ ${err.message}</p>`;
   });
+
