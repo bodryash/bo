@@ -1,46 +1,41 @@
-let schedule = {};
-let selectedCourse = "1 курс";
-let selectedGroup = "101";
+const app = document.getElementById("app");
 
-async function loadSchedule() {
-  const res = await fetch("data/schedule.json");
-  schedule = await res.json();
-  render();
-}
+app.innerHTML = "<p>⏳ Загружаем расписание...</p>";
 
-function render() {
-  document.getElementById("app").innerHTML = `
-    <div class="card">
-      <h2>📚 ${selectedCourse}</h2>
-      <h3>👥 Группа ${selectedGroup}</h3>
-      ${renderDay("Понедельник")}
-      ${renderDay("Вторник")}
-    </div>
-  `;
-}
+fetch("data/schedule.json")
+  .then((res) => {
+    if (!res.ok) {
+      throw new Error("Не удалось загрузить schedule.json");
+    }
+    return res.json();
+  })
+  .then((data) => {
+    console.log("schedule.json загружен:", data);
 
-function renderDay(day) {
-  const lessons =
-    schedule?.[selectedCourse]?.[selectedGroup]?.[day] || [];
+    if (Object.keys(data).length === 0) {
+      app.innerHTML = "<p>⚠️ Расписание пустое</p>";
+      return;
+    }
 
-  if (lessons.length === 0) {
-    return `<p><b>${day}</b>: занятий нет</p>`;
-  }
-
-  return `
-    <h4>${day}</h4>
-    ${lessons
-      .map(
-        (l) => `
+    app.innerHTML = `
+      <div class="card">
+        <h2>📚 1 курс · Группа 101</h2>
+        <h4>Понедельник</h4>
         <div class="lesson">
-          <div class="time">${l.time}</div>
-          <div class="subject">${l.subject}</div>
-          <div class="meta">${l.type} • ${l.room}</div>
+          <div class="time">09:00–10:30</div>
+          <div class="subject">История</div>
+          <div class="meta">лекция · Ауд. 101</div>
         </div>
-      `
-      )
-      .join("")}
-  `;
-}
+      </div>
+    `;
+  })
+  .catch((err) => {
+    console.error(err);
+    app.innerHTML = `
+      <p style="color:red;">
+        ❌ Ошибка загрузки данных<br>
+        ${err.message}
+      </p>
+    `;
+  });
 
-loadSchedule();
