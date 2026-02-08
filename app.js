@@ -2,6 +2,10 @@ const app = document.getElementById("app");
 
 app.innerHTML = "<p>⏳ Загружаем расписание...</p>";
 
+let schedule = {};
+const selectedCourse = "1 курс";
+const selectedGroup = "101";
+
 fetch("data/schedule.json")
   .then((res) => {
     if (!res.ok) {
@@ -10,24 +14,14 @@ fetch("data/schedule.json")
     return res.json();
   })
   .then((data) => {
-    console.log("schedule.json загружен:", data);
+    schedule = data;
 
-    if (Object.keys(data).length === 0) {
-      app.innerHTML = "<p>⚠️ Расписание пустое</p>";
+    if (!schedule[selectedCourse] || !schedule[selectedCourse][selectedGroup]) {
+      app.innerHTML = "<p>⚠️ Нет данных для выбранной группы</p>";
       return;
     }
 
-    app.innerHTML = `
-      <div class="card">
-        <h2>📚 1 курс · Группа 101</h2>
-        <h4>Понедельник</h4>
-        <div class="lesson">
-          <div class="time">09:00–10:30</div>
-          <div class="subject">История</div>
-          <div class="meta">лекция · Ауд. 101</div>
-        </div>
-      </div>
-    `;
+    render();
   })
   .catch((err) => {
     console.error(err);
@@ -38,4 +32,39 @@ fetch("data/schedule.json")
       </p>
     `;
   });
+
+function render() {
+  app.innerHTML = `
+    <div class="card">
+      <h2>📚 ${selectedCourse}</h2>
+      <h3>👥 Группа ${selectedGroup}</h3>
+      ${renderDay("Понедельник")}
+      ${renderDay("Вторник")}
+    </div>
+  `;
+}
+
+function renderDay(day) {
+  const lessons =
+    schedule[selectedCourse][selectedGroup][day] || [];
+
+  if (lessons.length === 0) {
+    return `<p><b>${day}</b>: занятий нет</p>`;
+  }
+
+  return `
+    <h4>${day}</h4>
+    ${lessons
+      .map(
+        (l) => `
+        <div class="lesson">
+          <div class="time">${l.time}</div>
+          <div class="subject">${l.subject}</div>
+          <div class="meta">${l.type} • ${l.room}</div>
+        </div>
+      `
+      )
+      .join("")}
+  `;
+}
 
