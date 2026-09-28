@@ -363,15 +363,15 @@ export function syncThumb(seg) {
   } else place();
 }
 
-/** Знак Потока — чёрный «:П» на белом: смайлик из названия. */
+/** Знак Потока — тонкий чёрный «:П» на белом, в пару к «:P» расписания. */
 export function logo(size = 32) {
   const el = document.createElement("span");
   el.className = "logo";
   el.style.width = el.style.height = `${size}px`;
   el.innerHTML =
     '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="18" fill="#fff"/>' +
-    '<circle class="mk-dot" cx="16" cy="25" r="4.6" fill="#0f1419"/><circle class="mk-dot mk-dot2" cx="16" cy="40.5" r="4.6" fill="#0f1419"/>' +
-    '<path class="mk-p" d="M27.5 47V18.5h21V47" fill="none" stroke="#0f1419" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    '<circle class="mk-dot" cx="20" cy="28.2" r="2.35" fill="#111"/><circle class="mk-dot mk-dot2" cx="20" cy="41.6" r="2.35" fill="#111"/>' +
+    '<path class="mk-p" d="M28.9 44V21.6h16.4V44" fill="none" stroke="#111" stroke-width="3.2" stroke-linejoin="miter"/></svg>';
   return el;
 }
 
