@@ -68,4 +68,5 @@ export function postLink(id) {
   return `${origin || location.origin}/#/p/${id}`;
 }
 
-export const imageUrl = (key) => `/img/${key}`;
+// Демо хранит фото в памяти страницы и отдаёт их своими адресами.
+export const imageUrl = (key) => window.POTOK_DEMO?.imageUrl(key) || `/img/${key}`;

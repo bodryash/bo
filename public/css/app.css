@@ -33,11 +33,13 @@
   --tabbar-h: 58px;
   --safe-bottom: max(env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
+/* Тёмная тема: по настройке системы — и явным переключателем data-theme,
+   который ставит окно, где открыта страница (оно же выключает её). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --fb-bg: #0e0f12;
     --fb-card: #1a1b20;
     --fb-text: #f2f3f5;
@@ -47,7 +49,21 @@
     --fb-sep: rgba(255, 255, 255, 0.07);
     --fb-danger: #ff6369;
     --shadow: none;
+    color-scheme: dark;
   }
+}
+
+:root[data-theme="dark"] {
+  --fb-bg: #0e0f12;
+  --fb-card: #1a1b20;
+  --fb-text: #f2f3f5;
+  --fb-hint: #8b8e96;
+  --fb-link: #6ea0ff;
+  --fb-accent: #4d7cff;
+  --fb-sep: rgba(255, 255, 255, 0.07);
+  --fb-danger: #ff6369;
+  --shadow: none;
+  color-scheme: dark;
 }
 
 * {
@@ -150,6 +166,43 @@ a {
 .fatal {
   display: grid;
   place-items: center;
+}
+
+.backbar {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 44px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+.backbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 10px 0 4px;
+  border-radius: 10px;
+  color: var(--link);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.backbar button:active {
+  background: var(--soft);
+}
+
+.confirm-text {
+  padding: 4px 8px 14px;
+  text-align: center;
+  color: var(--hint);
+  font-size: 14.5px;
 }
 
 /* ——— нижние вкладки ——— */
@@ -910,6 +963,13 @@ a {
   color: var(--hint);
   max-width: 300px;
   margin-bottom: 10px;
+}
+
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
 }
 
 .end {

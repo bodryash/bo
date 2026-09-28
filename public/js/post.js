@@ -3,8 +3,8 @@ import { postCard, reportSheet } from "./card.js";
 import { LIMITS, studentLine } from "./data.js";
 import { errorState, skeleton } from "./feed.js";
 import { back, go } from "./router.js";
-import { confirmDialog, haptic } from "./tg.js";
-import { actionSheet, ago, autoGrow, avatar, emptyState, h, icon, richText, toast } from "./ui.js";
+import { haptic } from "./tg.js";
+import { actionSheet, ago, autoGrow, avatar, confirmDialog, emptyState, h, icon, richText, toast } from "./ui.js";
 
 /** Экран поста: сам пост, комментарии и поле ответа снизу. */
 export function postScreen({ id, comment }) {
@@ -219,6 +219,15 @@ export function postScreen({ id, comment }) {
     return { el, sync, focus: () => input.focus() };
   }
 
+  // Кто-то ответил в этом посте, пока он открыт, — показываем сразу.
+  const onActivity = (e) => e.detail?.postId === postId && load();
+  window.addEventListener("potok:activity", onActivity);
+
   load();
-  return { el: el, scroller };
+  return {
+    el,
+    destroy() {
+      window.removeEventListener("potok:activity", onActivity);
+    },
+  };
 }

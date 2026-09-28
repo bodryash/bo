@@ -6,8 +6,8 @@
 import { api, imageUrl, postLink, store } from "./api.js";
 import { FACULTY, REPORT_REASONS, RUBRIC, studentLine } from "./data.js";
 import { go } from "./router.js";
-import { confirmDialog, haptic, openLink } from "./tg.js";
-import { actionSheet, ago, avatar, eventBadge, eventDate, formatPrice, h, icon, plural, richText, toast } from "./ui.js";
+import { haptic, openLink } from "./tg.js";
+import { actionSheet, ago, avatar, confirmDialog, eventBadge, eventDate, formatPrice, h, icon, plural, richText, toast } from "./ui.js";
 import { openViewer } from "./viewer.js";
 
 const CLOSED_LABEL = { market: "Продано", lost: "Нашлось", housing: "Уже не актуально" };

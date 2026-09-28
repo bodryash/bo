@@ -1,0 +1,35 @@
+<title>Поток</title>
+<!-- Демо-страница: публикуется как артефакт, обёртку документа (doctype,
+     head, body) добавляет публикация. Для локального запуска — README. -->
+<style>
+  .splash {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: #f1f2f6; color: #0f1419;
+    font: 800 30px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    letter-spacing: -0.03em; text-align: center; padding: 0 24px;
+    transition: opacity .3s ease;
+  }
+  .splash.gone { opacity: 0; pointer-events: none; }
+  .splash small { font: 500 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; letter-spacing: 0; color: #8a8f98; }
+  .splash-mark {
+    width: 64px; height: 64px; border-radius: 20px;
+    display: grid; place-items: center; color: #fff; font-size: 34px;
+    background: linear-gradient(145deg, #5b8cff, #7a5cff 60%, #c95cff);
+    box-shadow: 0 10px 30px rgba(91, 110, 255, .35);
+    animation: splash-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes splash-pulse { 50% { transform: scale(.94); } }
+  @media (prefers-reduced-motion: reduce) { .splash-mark { animation: none; } }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .splash { background: #0e0f12; color: #f2f3f5; }
+  }
+  :root[data-theme="dark"] .splash { background: #0e0f12; color: #f2f3f5; }
+  /* В приложении Claude на телефоне страница идёт под строку состояния. */
+  #app { top: env(safe-area-inset-top, 0px) !important; }
+</style>
+<link rel="stylesheet" href="public/css/app.css">
+<div class="splash"><div class="splash-mark">П</div>Поток<small>Запускаем сервер прямо в браузере…</small></div>
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/sql-asm.js"></script>
+<script type="module" src="demo/boot.js"></script>

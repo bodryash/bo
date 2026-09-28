@@ -5,9 +5,13 @@
  * заново при каждом открытии.
  *
  * Экран — объект { el, onShow?, onHide?, onReselect?, destroy? }.
+ *
+ * В демо история живёт в памяти: встроенное окно, в котором оно открыто,
+ * может не дать менять адрес страницы.
  */
 
-import { backButton } from "./tg.js";
+import { backButton, insideTelegram } from "./tg.js";
+import { h, icon } from "./ui.js";
 
 const routes = [];
 const tabScreens = new Map();
@@ -15,7 +19,13 @@ let current = null; // { key, screen, tab }
 let depth = 0;
 let guard = null;
 
+const memory = !!window.POTOK_DEMO;
+const stack = ["/"];
+
 export const TABS = ["/", "/search", "/notif", "/me"];
+
+// Экраны, у которых своя кнопка отмены или куда «назад» не ведёт.
+const OWN_BACK = new Set(["/new", "/settings", "/onboarding"]);
 
 /** route("/p/:id", (params) => screen, { tab: true }) */
 export function route(pattern, factory, opts = {}) {
@@ -37,7 +47,13 @@ export function setGuard(fn) {
 }
 
 export function currentPath() {
+  if (memory) return stack[stack.length - 1];
   return decodeURIComponent(location.hash.replace(/^#/, "")) || "/";
+}
+
+function replacePath(path) {
+  if (memory) stack[stack.length - 1] = path;
+  else history.replaceState(null, "", "#" + path);
 }
 
 export function go(path, { replace = false } = {}) {
@@ -46,7 +62,10 @@ export function go(path, { replace = false } = {}) {
     return;
   }
   if (replace) {
-    history.replaceState(null, "", "#" + path);
+    replacePath(path);
+    render();
+  } else if (memory) {
+    stack.push(path);
     render();
   } else {
     depth++;
@@ -55,12 +74,21 @@ export function go(path, { replace = false } = {}) {
 }
 
 export function back() {
-  if (depth > 0) {
+  if (memory) {
+    if (stack.length > 1) stack.pop();
+    else stack[0] = "/";
+    render();
+  } else if (depth > 0) {
     depth--;
     history.back();
   } else {
     go("/", { replace: true });
   }
+}
+
+/** Куда открыться при запуске — например, пост из ссылки «поделиться». */
+export function setInitialPath(path) {
+  replacePath(path);
 }
 
 let root;
@@ -69,7 +97,7 @@ let onChange = () => {};
 export function start(container, changed) {
   root = container;
   onChange = changed;
-  window.addEventListener("hashchange", render);
+  if (!memory) window.addEventListener("hashchange", render);
   render();
 }
 
@@ -77,7 +105,7 @@ function render() {
   let path = currentPath();
   const redirect = guard?.(path);
   if (redirect && redirect !== path) {
-    history.replaceState(null, "", "#" + redirect);
+    replacePath(redirect);
     path = redirect;
   }
 
@@ -92,7 +120,7 @@ function render() {
     }
   }
   if (!match) {
-    history.replaceState(null, "", "#/");
+    replacePath("/");
     return render();
   }
 
@@ -121,6 +149,10 @@ function render() {
   } else {
     screen = match.factory(params);
     screen.el.classList.add("screen", "pushed");
+    // Вне Telegram его кнопки «назад» нет — рисуем свою полосу сверху.
+    if (!insideTelegram && !OWN_BACK.has(path)) {
+      screen.el.prepend(h("div.backbar", h("button", { onclick: back }, icon("back"), "Назад")));
+    }
     root.append(screen.el);
   }
 

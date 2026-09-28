@@ -9,7 +9,7 @@ import { notificationsScreen } from "./notifications.js";
 import { onboardingScreen } from "./onboarding.js";
 import { postScreen } from "./post.js";
 import { profileScreen, settingsScreen } from "./profile.js";
-import { currentPath, go, route, setGuard, start } from "./router.js";
+import { currentPath, go, route, setGuard, setInitialPath, start } from "./router.js";
 import { searchScreen } from "./search.js";
 import { haptic, setup, startParam } from "./tg.js";
 import { h, icon } from "./ui.js";
@@ -53,7 +53,7 @@ async function boot() {
 
   // Пришли по ссылке «поделиться» — t.me/бот/приложение?startapp=p123.
   const start0 = /^p(\d+)$/.exec(startParam());
-  if (start0 && currentPath() === "/") history.replaceState(null, "", `#/p/${start0[1]}`);
+  if (start0 && currentPath() === "/") setInitialPath(`/p/${start0[1]}`);
 
   app.replaceChildren(screens, tabbar.el);
   start(screens, ({ tab }) => tabbar.paint(tab));

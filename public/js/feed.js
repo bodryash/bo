@@ -178,7 +178,18 @@ export function feedScreen({ fixedScope = null } = {}) {
   function empty() {
     const [emoji, title, text] = EMPTY[prefs.rubric] || EMPTY[""];
     const canWrite = !fixedScope || fixedScope === store.me?.faculty;
-    return emptyState(emoji, title, text, canWrite ? h("button.btn", { onclick: () => go("/new") }, "Написать пост") : null);
+    // На факультете пока пусто — пусть человек увидит, что жизнь есть
+    // во всём университете, а не уйдёт с пустого экрана.
+    const toMsu =
+      !fixedScope && prefs.scope !== "msu"
+        ? h("button.btn", { onclick: () => ((prefs.scope = "msu"), changed()) }, "Лента всего МГУ")
+        : null;
+    return emptyState(
+      emoji,
+      title,
+      text,
+      h("div.empty-actions", canWrite ? h("button.btn.primary", { onclick: () => go("/new") }, "Написать пост") : null, toMsu)
+    );
   }
 
   // Подгрузка при приближении к концу списка.

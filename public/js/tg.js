@@ -6,6 +6,10 @@
 
 export const tg = window.Telegram?.WebApp || null;
 
+// Скрипт Telegram создаёт WebApp и в обычном браузере, но подпись initData
+// есть только внутри Telegram — по ней и понимаем, где мы.
+export const insideTelegram = !!tg?.initData;
+
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 
 /**
@@ -14,6 +18,8 @@ const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
  */
 export function initData() {
   if (tg?.initData) return tg.initData;
+  // Демо-страница подписывает строку сама — см. demo/.
+  if (window.POTOK_DEMO) return window.POTOK_DEMO.initData;
   if (!LOCAL) return "";
   const m = /[#&]dev=([^&]+)/.exec(location.hash);
   if (m) {
@@ -58,7 +64,7 @@ function syncColors() {
 
 let backHandler = null;
 export function backButton(onClick) {
-  if (!tg || !supports("6.1")) return;
+  if (!insideTelegram || !supports("6.1")) return;
   if (backHandler) tg.BackButton.offClick(backHandler);
   backHandler = onClick;
   if (onClick) {
@@ -83,12 +89,6 @@ export const haptic = {
     if (supports("6.1")) tg.HapticFeedback.notificationOccurred("error");
   },
 };
-
-/** Подтверждение нативным окном Telegram, а вне его — обычным confirm. */
-export function confirmDialog(message) {
-  if (supports("6.2")) return new Promise((resolve) => tg.showConfirm(message, resolve));
-  return Promise.resolve(window.confirm(message));
-}
 
 export function openLink(url) {
   if (/^https:\/\/t\.me\//.test(url) && tg) return tg.openTelegramLink(url);

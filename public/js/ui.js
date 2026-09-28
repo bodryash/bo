@@ -5,7 +5,7 @@
  * оказаться разметкой.
  */
 
-import { openLink } from "./tg.js";
+import { insideTelegram, openLink, tg } from "./tg.js";
 
 /** h("div.card.big", { onclick }, child, "текст", [дети]) */
 export function h(tag, attrs, ...children) {
@@ -68,6 +68,7 @@ const ICONS = {
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   reply: '<path d="M10 7 5 12l5 5"/><path d="M5.5 12H14a5 5 0 0 1 5 5v1"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
+  back: '<path d="m15 5-7 7 7 7"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
   settings:
     '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M18 6l-1.6 1.6M7.6 16.4 6 18M18 18l-1.6-1.6M7.6 7.6 6 6"/>',
@@ -306,4 +307,30 @@ export function toggle(checked, onChange) {
   const input = h("input", { type: "checkbox", checked });
   input.addEventListener("change", () => onChange(input.checked));
   return h("label.switch", input, h("span"));
+}
+
+/**
+ * Подтверждение. В Telegram — его родное окно; вне его — нижний лист:
+ * window.confirm во встроенных окнах браузера часто молча отвечает «нет».
+ */
+export function confirmDialog(message, { ok = "Удалить", danger = true } = {}) {
+  if (insideTelegram && tg.isVersionAtLeast?.("6.2")) {
+    return new Promise((resolve) => tg.showConfirm(message, resolve));
+  }
+  return new Promise((resolve) => {
+    let answer = false;
+    sheet(
+      (close) =>
+        h(
+          "div.actions",
+          h("div.confirm-text", message),
+          h(
+            "div.actions-group",
+            h("button.action" + (danger ? ".danger" : ""), { onclick: () => ((answer = true), close()) }, h("span", ok))
+          ),
+          h("button.action.cancel", { onclick: close }, "Отмена")
+        ),
+      { onClose: () => resolve(answer) }
+    );
+  });
 }
