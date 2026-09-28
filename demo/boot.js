@@ -246,6 +246,18 @@ async function seed(as, DB) {
   await comment(p.dima, quiz, { text: "«Глобальные сырники», ФГП, нас пятеро — ищем шестого!" });
   await comment(p.kirill, posts[4], { text: "Это мой!! Спасибо огромное, уже забрал 🙏" });
 
+  // Правки: модератор увидит «изменено» и прежние версии.
+  await as(p.dima, "POST", `/api/comments/${c1}/edit`, { text: "Перенесли, в деканате сказали — 1-й гуман, ауд. 402. Начало в 13:40." });
+  await as(p.anya, "POST", `/api/posts/${talk.id}/edit`, {
+    text: talk.text + "\n\nUPD: перенесли в 1-й гуманитарный, ауд. 402. Спасибо всем!",
+  });
+  // Спам, который трое скрыли жалобами, — в очереди и серым под постом.
+  const spam = await comment(p.kirill, quiz, { text: "Курсовые и дипломы недорого, пишите в личку 📩" });
+  for (const who of [p.anya, p.dima, p.vera]) await as(who, "POST", "/api/report", { target: `c:${spam}`, reason: "spam" });
+  // Галочка у ведущего квизов — подтверждённый организатор.
+  const gleb = (await DB.prepare("SELECT id FROM users WHERE tg_id = ?").bind(p.gleb.id).first()).id;
+  await DB.prepare("INSERT INTO verified (user_id, granted_by, created_at) VALUES (?, NULL, ?)").bind(gleb, Math.floor(Date.now() / 1000)).run();
+
   // Чтобы лента выглядела живой, «состариваем» посты и комментарии.
   const now = Math.floor(Date.now() / 1000);
   for (const post of posts) {

@@ -3,6 +3,7 @@ import { notify } from "./notify.js";
 import { loadPost, postQuery } from "./posts.js";
 import { AUTHOR_COLUMNS, assertCanWrite, authorFromRow } from "./users.js";
 import { DAY, charCount, cleanText, fail, now } from "./util.js";
+import { auditStmt } from "./audit.js";
 
 const COMMENTS_PER_DAY = 150;
 const MAX_COMMENTS = 500;
@@ -12,15 +13,22 @@ const MAX_COMMENTS = 500;
  * дерево не строим: в узком окне телефона вложенность в три уровня уже
  * нечитаема, поэтому ответ показывается цитатой, как в Telegram.
  */
-export const commentsQuery = (env, postId) =>
+/**
+ * Комментарии поста. all — для модератора: вместе с удалёнными и скрытыми,
+ * с пометкой, кто удалил. edited — была ли правка (по журналу).
+ */
+export const commentsQuery = (env, postId, all = false) =>
   env.DB.prepare(
-    `SELECT c.*, ${AUTHOR_COLUMNS} FROM comments c JOIN users u ON u.id = c.author_id
-     WHERE c.post_id = ? AND c.hidden = 0 ORDER BY c.id LIMIT ?`
+    `SELECT c.*, ${AUTHOR_COLUMNS},
+       EXISTS (SELECT 1 FROM audit a WHERE a.target = 'c:' || c.id AND a.kind = 'edit') AS edited
+       ${all ? `, (SELECT a.note FROM audit a WHERE a.target = 'c:' || c.id AND a.kind IN ('delete', 'hide') ORDER BY a.id DESC LIMIT 1) AS removal_note` : ""}
+     FROM comments c JOIN users u ON u.id = c.author_id
+     WHERE c.post_id = ? ${all ? "" : "AND c.hidden = 0"} ORDER BY c.id LIMIT ?`
   ).bind(postId, MAX_COMMENTS);
 
 export async function listComments(env, viewerUser, postId, preloaded) {
   const post = preloaded?.post || (await loadPost(env, postId));
-  const results = preloaded?.comments || (await commentsQuery(env, postId).all()).results;
+  const results = preloaded?.comments || (await commentsQuery(env, postId, viewerUser.admin).all()).results;
   return results.map((c) => serialize(c, post, viewerUser));
 }
 
@@ -38,6 +46,9 @@ function serialize(c, post, viewerUser) {
     mine,
     reply_to: c.reply_to,
     text: c.text,
+    edited: !!c.edited,
+    // Удалённое и скрытое приходит только модератору — с пометкой.
+    removed: c.hidden ? { kind: c.hidden === 1 ? "hide" : "delete", note: c.removal_note || null } : undefined,
     created_at: c.created_at,
     can_delete: mine || !!viewerUser.admin,
   };
@@ -104,14 +115,33 @@ export async function deleteComment(env, user, id) {
   const c = await env.DB.prepare("SELECT * FROM comments WHERE id = ?").bind(id).first();
   if (!c || c.hidden === 2) fail(404, "Комментарий уже удалён");
   if (c.author_id !== user.id && !user.admin) fail(403, "Удалить можно только свой комментарий");
-  await removeComment(env, c);
+  await removeComment(env, c, { actorId: user.id, note: c.author_id === user.id ? "автором" : "модератором" });
   return { ok: true };
 }
 
+/** Правка комментария — только автором; прежний текст — в журнал. */
+export async function editComment(env, user, id, body) {
+  assertCanWrite(user);
+  const c = await env.DB.prepare("SELECT * FROM comments WHERE id = ?").bind(id).first();
+  if (!c || c.hidden) fail(404, "Комментарий удалён или скрыт");
+  if (c.author_id !== user.id) fail(403, "Править можно только свой комментарий");
+  const text = cleanText(body.text);
+  if (!text) fail(400, "Пустой комментарий");
+  if (charCount(text) > LIMITS.commentText) fail(400, `Комментарий длиннее ${LIMITS.commentText} знаков`);
+  if (text !== c.text) {
+    await env.DB.batch([
+      auditStmt(env, { kind: "edit", target: `c:${id}`, actorId: user.id, oldText: c.text }),
+      env.DB.prepare("UPDATE comments SET text = ? WHERE id = ?").bind(text, id),
+    ]);
+  }
+  return { text, edited: true };
+}
+
 /** Удаление с поправкой счётчика — общее для автора, модератора и бота. */
-export async function removeComment(env, c) {
+export async function removeComment(env, c, { actorId = null, note = null } = {}) {
   await env.DB.batch([
     env.DB.prepare("UPDATE comments SET hidden = 2 WHERE id = ?").bind(c.id),
+    auditStmt(env, { kind: "delete", target: `c:${c.id}`, actorId, note }),
     // Скрытый жалобами уже вычтен из счётчика — второй раз не вычитаем.
     ...(c.hidden === 0
       ? [env.DB.prepare("UPDATE posts SET comments = MAX(comments - 1, 0) WHERE id = ?").bind(c.post_id)]

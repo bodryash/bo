@@ -1,12 +1,12 @@
 import { api, postCache, store } from "./api.js";
 import { modAuthor, postCard, reportSheet } from "./card.js";
-import { banSheet } from "./profile.js";
+import { editSheet, editedMark, historySheet, modActions, removalText } from "./modtools.js";
 import { LIMITS, studentLine } from "./data.js";
 import { errorState, skeleton } from "./feed.js";
 import { back, go } from "./router.js";
 import { pressable, swipeX } from "./gestures.js";
 import { haptic, vibrate } from "./tg.js";
-import { actionSheet, ago, autoGrow, avatar, confirmDialog, emptyState, h, icon, richText, toast } from "./ui.js";
+import { actionSheet, ago, autoGrow, avatar, confirmDialog, emptyState, h, icon, richText, tick, toast } from "./ui.js";
 
 /** Экран поста: сам пост, комментарии и поле ответа снизу. */
 export function postScreen({ id, comment }) {
@@ -23,6 +23,12 @@ export function postScreen({ id, comment }) {
   const byId = new Map();
 
   const list = h("div.comments");
+  const title = h("div.comments-title", "Комментарии");
+  // Модератору приходят и удалённые комментарии — в счётчик их не берём.
+  const countTitle = (loading = false) => {
+    const visible = loading ? 0 : comments.filter((c) => !c.removed).length;
+    title.textContent = visible ? `Комментарии · ${visible}` : "Комментарии";
+  };
   const composer = buildComposer();
 
   let shownCard = null;
@@ -52,12 +58,13 @@ export function postScreen({ id, comment }) {
   }
 
   function render({ commentsLoading = false, keepCard = false } = {}) {
-    if (!keepCard || !shownCard) shownCard = postCard(post, { full: true, showScope: true, onRemove: back, appear: !shownCard });
-    scroller.replaceChildren(
-      shownCard,
-      h("div.comments-title", commentsLoading ? "Комментарии" : comments.length ? `Комментарии · ${comments.length}` : "Комментарии"),
-      list
-    );
+    const onChange = (next, card) => {
+      post = next;
+      shownCard = card;
+    };
+    if (!keepCard || !shownCard) shownCard = postCard(post, { full: true, showScope: true, onRemove: back, onChange, appear: !shownCard });
+    scroller.replaceChildren(shownCard, title, list);
+    countTitle(commentsLoading);
     list.replaceChildren(
       ...(commentsLoading
         ? [h("div.comment-skeleton", h("div.sk-circle"), h("div.sk-lines", h("div.sk-line.w40"), h("div.sk-line.w90")))]
@@ -81,7 +88,7 @@ export function postScreen({ id, comment }) {
     const name = nameOf(c);
     const parent = c.reply_to ? byId.get(c.reply_to) : null;
     const node = h(
-      "div.comment.appear" + (c.mine ? ".mine" : ""),
+      "div.comment.appear" + (c.mine ? ".mine" : "") + (c.removed ? ".removed" : ""),
       { dataset: { id: c.id }, style: { "--i": Math.min(index, 10) } },
       h("div.reply-hint", icon("reply")),
       h("button.comment-avatar", { onclick: () => c.author && go(`/u/${c.author.id}`), disabled: !c.author }, avatar(c.author, 34)),
@@ -90,9 +97,11 @@ export function postScreen({ id, comment }) {
         h(
           "div.comment-head",
           h("span.comment-name", name),
+          tick(c.author),
           c.is_op ? h("span.op-tag", "автор") : null,
           c.author ? h("span.comment-sub", studentLine(c.author)) : null
         ),
+        c.removed ? removedTag(c) : null,
         c.mod_author ? modAuthor(c.mod_author) : null,
         c.reply_to
           ? h(
@@ -115,15 +124,36 @@ export function postScreen({ id, comment }) {
         h("div.comment-text", richText(c.text)),
         h(
           "div.comment-foot",
-          h("span", ago(c.created_at)),
-          post.hidden === 0 ? h("button.link-btn", { onclick: () => setReply(c) }, "Ответить") : null,
+          h("span.comment-time", ago(c.created_at)),
+          c.edited ? editedMark(`c:${c.id}`) : null,
+          post.hidden === 0 && !c.removed ? h("button.link-btn", { onclick: () => setReply(c) }, "Ответить") : null,
           h("button.icon-btn.tiny", { "aria-label": "Ещё", onclick: () => commentMenu(c, node) }, icon("more"))
         )
       )
     );
     pressable(node, { onLongPress: () => commentMenu(c, node) });
-    if (post.hidden === 0) swipeToReply(node, () => setReply(c));
+    if (post.hidden === 0 && !c.removed) swipeToReply(node, () => setReply(c));
     return node;
+  }
+
+  /** Модератору: комментарий удалён или скрыт — кем и почему. */
+  function removedTag(c) {
+    return h(
+      "button.removed-tag",
+      { onclick: (e) => (e.stopPropagation(), historySheet(`c:${c.id}`)) },
+      icon(c.removed.kind === "hide" ? "flag" : "trash"),
+      `${removalText(c.removed.kind, c.removed.note)} · видно только модераторам`
+    );
+  }
+
+  /** Заменить строку комментария свежей — после правки, удаления, возврата. */
+  function replaceComment(c, node, patch) {
+    Object.assign(c, patch);
+    const fresh = commentEl(c);
+    fresh.classList.remove("appear");
+    node.replaceWith(fresh);
+    countTitle();
+    return fresh;
   }
 
   /**
@@ -156,48 +186,73 @@ export function postScreen({ id, comment }) {
     c.anonymous ? (c.anon_no === 0 ? "Автор поста" : c.anon_no == null ? "Вы, анонимно" : `Аноним ${c.anon_no}`) : c.author.name;
 
   function commentMenu(c, node) {
+    const admin = store.me?.admin;
     actionSheet([
-      post.hidden === 0 && { label: "Ответить", icon: "reply", onClick: () => setReply(c) },
+      post.hidden === 0 && !c.removed && { label: "Ответить", icon: "reply", onClick: () => setReply(c) },
       {
         label: "Скопировать текст",
         icon: "edit",
         onClick: () => navigator.clipboard?.writeText(c.text).then(() => toast("Скопировано"), () => {}),
       },
-      !c.mine && { label: "Пожаловаться", icon: "flag", onClick: () => reportSheet(`c:${c.id}`) },
-      store.me?.admin &&
-        !c.mine && {
-          label: "Удалить и забанить автора",
-          icon: "shield",
-          danger: true,
+      c.mine &&
+        !c.removed &&
+        typeof c.id === "number" && {
+          label: "Редактировать",
+          icon: "edit",
           onClick: () =>
-            banSheet(c.author || c.mod_author, async (days) => {
-              try {
-                const res = await api.post("/api/admin/act", { target: `c:${c.id}`, action: "ban", days });
-                haptic.warning();
-                toast(res.result);
-                node.remove();
-              } catch (err) {
-                toast(err.message, "error");
-              }
+            editSheet({
+              title: "Правка комментария",
+              text: c.text,
+              max: LIMITS.commentText,
+              onSave: async (text) => {
+                const res = await api.post(`/api/comments/${c.id}/edit`, { text });
+                replaceComment(c, node, { text: res.text, edited: res.edited });
+              },
             }),
         },
-      c.can_delete && {
-        label: "Удалить",
-        icon: "trash",
-        danger: true,
-        onClick: async () => {
-          if (!(await confirmDialog("Удалить комментарий?"))) return;
-          try {
-            await api.post(`/api/comments/${c.id}/delete`);
-            comments = comments.filter((x) => x.id !== c.id);
-            post.comments = Math.max(0, post.comments - 1);
-            node.remove();
-            if (!comments.length) list.replaceChildren(h("div.comments-empty", "Комментариев больше нет"));
-          } catch (err) {
-            toast(err.message, "error");
-          }
+      !c.mine && !c.removed && { label: "Пожаловаться", icon: "flag", onClick: () => reportSheet(`c:${c.id}`) },
+      admin &&
+        !c.mine && {
+          label: "Модерация…",
+          icon: "shield",
+          onClick: () =>
+            modActions({
+              target: `c:${c.id}`,
+              author: c.author || c.mod_author,
+              edited: c.edited,
+              hidden: c.removed ? (c.removed.kind === "hide" ? 1 : 2) : 0,
+              // Модератор остаётся на экране и видит, что комментарий
+              // теперь удалён, — строка серая, с пометкой.
+              onRemoved: () => {
+                if (!c.removed) post.comments = Math.max(0, post.comments - 1);
+                replaceComment(c, node, { removed: { kind: "delete", note: "модератором" } });
+              },
+              onRestored: () => {
+                post.comments++;
+                replaceComment(c, node, { removed: undefined });
+              },
+            }),
         },
-      },
+      c.edited && admin && { label: "История правок", icon: "edit", onClick: () => historySheet(`c:${c.id}`) },
+      c.mine &&
+        !c.removed && {
+          label: "Удалить",
+          icon: "trash",
+          danger: true,
+          onClick: async () => {
+            if (!(await confirmDialog("Удалить комментарий?"))) return;
+            try {
+              await api.post(`/api/comments/${c.id}/delete`);
+              comments = comments.filter((x) => x.id !== c.id);
+              post.comments = Math.max(0, post.comments - 1);
+              node.remove();
+              countTitle();
+              if (!comments.length) list.replaceChildren(h("div.comments-empty", "Комментариев больше нет"));
+            } catch (err) {
+              toast(err.message, "error");
+            }
+          },
+        },
     ]);
   }
 
@@ -288,7 +343,7 @@ export function postScreen({ id, comment }) {
       }
       node.classList.add("pending");
       node.classList.remove("failed");
-      node.querySelector(".comment-foot span").textContent = "отправляется…";
+      node.querySelector(".comment-time").textContent = "отправляется…";
 
       api
         .post(`/api/posts/${postId}/comments`, { text, anonymous: draft.anonymous, reply_to: draft.reply_to })
@@ -298,6 +353,7 @@ export function postScreen({ id, comment }) {
           byId.set(c.id, c);
           comments.push(c);
           post.comments++;
+          countTitle();
           const real = commentEl(c);
           real.classList.remove("appear");
           node.replaceWith(real);
@@ -307,7 +363,7 @@ export function postScreen({ id, comment }) {
           toast(err.message, "error");
           node.classList.remove("pending");
           node.classList.add("failed");
-          node.querySelector(".comment-foot span").textContent = "не отправлено — коснитесь, чтобы повторить";
+          node.querySelector(".comment-time").textContent = "не отправлено — коснитесь, чтобы повторить";
           node.addEventListener("click", () => submit({ ...draft, node }), { once: true });
         });
     }

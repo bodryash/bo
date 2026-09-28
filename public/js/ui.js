@@ -86,6 +86,20 @@ export function icon(name, cls = "") {
   return span;
 }
 
+/**
+ * Галочка у имени: зубчатый кружок цвета акцента с белой отметкой.
+ * Своя заливка, поэтому не через icon() — те рисуются контуром.
+ */
+export function tick(user) {
+  if (!user?.verified) return null;
+  const span = document.createElement("span");
+  span.className = "tick";
+  span.title = "Подтверждённый аккаунт";
+  span.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="tick-bg" d="M12 1.8l2.4 1.8 3-.2 1 2.8 2.7 1.4-.6 2.9 1.5 2.6-2.1 2.1.1 3-2.9.8-1.3 2.7-2.9-.6L12 22.2l-2.4-1.8-2.9.6-1.3-2.7-2.9-.8.1-3L.5 12.4 2 9.8l-.6-2.9 2.7-1.4 1-2.8 3 .2z"/><path class="tick-mark" d="m7.8 12.3 2.9 2.9 5.6-6"/></svg>';
+  return span;
+}
+
 // ——— время ———
 
 const MONTHS = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
@@ -233,6 +247,9 @@ export function sheet(content, { title, onClose } = {}) {
   const close = () => {
     if (closed) return;
     closed = true;
+    // Поле в листе ещё в фокусе — отпускаем: иначе на iPhone клавиатура
+    // «помнит» его, и полоса вкладок так и остаётся спрятанной.
+    if (panel.contains(document.activeElement)) document.activeElement.blur();
     onClose?.();
     backdrop.classList.remove("open");
     panel.classList.remove("open");

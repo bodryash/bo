@@ -3,7 +3,7 @@
  */
 
 import { notify } from "./notify.js";
-import { publicUser } from "./users.js";
+import { VERIFIED, publicUser } from "./users.js";
 import { DAY, fail, now } from "./util.js";
 
 export async function follow(env, user, targetId, body, ctx) {
@@ -38,7 +38,7 @@ export async function followList(env, viewerUser, userId, kind) {
   const join = kind === "followers" ? "f.follower_id" : "f.followee_id";
   const where = kind === "followers" ? "f.followee_id" : "f.follower_id";
   const { results } = await env.DB.prepare(
-    `SELECT u.*, EXISTS (SELECT 1 FROM follows x WHERE x.follower_id = ? AND x.followee_id = u.id) AS am_following
+    `SELECT u.*, ${VERIFIED}, EXISTS (SELECT 1 FROM follows x WHERE x.follower_id = ? AND x.followee_id = u.id) AS am_following
      FROM follows f JOIN users u ON u.id = ${join}
      WHERE ${where} = ? ORDER BY f.created_at DESC LIMIT 200`
   )
@@ -53,7 +53,7 @@ export async function followList(env, viewerUser, userId, kind) {
  */
 export async function suggestions(env, viewerUser) {
   const { results } = await env.DB.prepare(
-    `SELECT u.*, COUNT(p.id) AS n FROM users u JOIN posts p ON p.author_id = u.id
+    `SELECT u.*, ${VERIFIED}, COUNT(p.id) AS n FROM users u JOIN posts p ON p.author_id = u.id
      WHERE p.anonymous = 0 AND p.hidden = 0 AND p.created_at > ? AND u.id != ?
        AND u.id NOT IN (SELECT followee_id FROM follows WHERE follower_id = ?)
      GROUP BY u.id ORDER BY (u.faculty = ?) DESC, n DESC LIMIT 12`

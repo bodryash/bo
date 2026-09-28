@@ -35,7 +35,7 @@ export async function viewer(request, env, ctx, { fresh = false } = {}) {
   const hit = recent.get(tg.id);
   // fresh — там, где важен бан (пост, комментарий, фото): только из базы.
   let user = !fresh && hit && Date.now() - hit.at < RECENT_TTL ? hit.user : null;
-  if (!user) user = await env.DB.prepare("SELECT * FROM users WHERE tg_id = ?").bind(tg.id).first();
+  if (!user) user = await env.DB.prepare(`SELECT u.*, ${VERIFIED} FROM users u WHERE tg_id = ?`).bind(tg.id).first();
   const search = userSearchKey({ ...fields, show_username: user ? user.show_username : 1 });
   if (!user) {
     user = await env.DB.prepare(
@@ -64,6 +64,13 @@ export async function viewer(request, env, ctx, { fresh = false } = {}) {
   if (!hit || hit.user !== user) recent.set(tg.id, { user, at: Date.now() });
   if (recent.size > 5000) recent.clear();
   user.admin = isAdminTg(env, tg.id);
+  // Модератор получает галочку сам — один раз.
+  if (user.admin && !user.verified) {
+    user.verified = 1;
+    const grant = env.DB.prepare("INSERT OR IGNORE INTO verified (user_id, granted_by, created_at) VALUES (?, NULL, ?)").bind(user.id, t).run();
+    if (ctx) ctx.waitUntil(grant);
+    else await grant;
+  }
   return user;
 }
 
@@ -100,6 +107,7 @@ export function publicUser(u) {
     faculty: u.faculty,
     level: u.level,
     course: u.course,
+    verified: !!u.verified,
   };
 }
 
@@ -115,12 +123,18 @@ export function authorFromRow(row) {
     faculty: row.a_faculty,
     level: row.a_level,
     course: row.a_course,
+    verified: row.a_verified,
   });
 }
 
+// Галочка — отдельной таблицей, а не столбцом: так её не нужно
+// переносить в уже работающую базу.
+export const VERIFIED = "EXISTS (SELECT 1 FROM verified v WHERE v.user_id = u.id) AS verified";
+
 export const AUTHOR_COLUMNS = `u.id AS a_id, u.first_name AS a_first_name, u.last_name AS a_last_name,
   u.username AS a_username, u.show_username AS a_show_username, u.photo_url AS a_photo_url,
-  u.faculty AS a_faculty, u.level AS a_level, u.course AS a_course`;
+  u.faculty AS a_faculty, u.level AS a_level, u.course AS a_course,
+  EXISTS (SELECT 1 FROM verified v WHERE v.user_id = u.id) AS a_verified`;
 
 export function selfView(user) {
   return {
@@ -194,7 +208,7 @@ export async function updateMe(env, user, body) {
 }
 
 export async function getProfile(env, viewerUser, id) {
-  const u = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
+  const u = await env.DB.prepare(`SELECT u.*, ${VERIFIED} FROM users u WHERE id = ?`).bind(id).first();
   if (!u) fail(404, "Такого человека нет");
   // Анонимные посты в счётчик не входят: иначе по разнице между числом и
   // видимым списком можно было бы вычислить, что человек пишет анонимно.

@@ -4,9 +4,10 @@
  */
 
 import { banUser, deleteTarget, loadTarget, parseTarget, restoreTarget, unbanUser } from "./moderation.js";
-import { AUTHOR_COLUMNS, authorFromRow, publicUser } from "./users.js";
+import { AUTHOR_COLUMNS, VERIFIED, authorFromRow, publicUser } from "./users.js";
 import { REPORT_REASONS } from "../public/js/data.js";
 import { fail, now } from "./util.js";
+import { auditStmt } from "./audit.js";
 
 const REASON = Object.fromEntries(REPORT_REASONS.map((r) => [r.id, r.name]));
 
@@ -60,13 +61,14 @@ export async function act(env, user, body) {
   const row = await loadTarget(env, target);
   if (!row) fail(404, "Не найдено");
   let result;
-  if (body.action === "ok") result = await restoreTarget(env, target);
-  else if (body.action === "del") result = await deleteTarget(env, target);
+  const by = { actorId: user.id, note: "модератором" };
+  if (body.action === "ok") result = await restoreTarget(env, target, by);
+  else if (body.action === "del") result = await deleteTarget(env, target, by);
   else if (body.action === "ban") {
     if (row.author_id === user.id) fail(400, "Себя забанить нельзя");
-    result = await deleteTarget(env, target);
+    result = await deleteTarget(env, target, by);
     const days = Math.max(0, Math.min(3650, Number(body.days) || 0));
-    await banUser(env, row.author_id, days, String(body.reason || "нарушение правил").slice(0, 200));
+    await banUser(env, row.author_id, days, String(body.reason || "нарушение правил").slice(0, 200), { actorId: user.id });
     result += days ? `, автор забанен на ${days} дн.` : ", автор забанен навсегда";
   } else fail(400, "Нет такого действия");
   return { ok: true, result };
@@ -78,18 +80,33 @@ export async function banById(env, user, userId, body) {
   const target = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(userId).first();
   if (!target) fail(404, "Такого человека нет");
   if (body.on === false) {
-    await unbanUser(env, userId);
+    await unbanUser(env, userId, { actorId: user.id });
     return { banned_until: 0 };
   }
   const days = Math.max(0, Math.min(3650, Number(body.days) || 0));
-  const until = await banUser(env, userId, days, String(body.reason || "нарушение правил").slice(0, 200));
+  const until = await banUser(env, userId, days, String(body.reason || "нарушение правил").slice(0, 200), { actorId: user.id });
   return { banned_until: until };
+}
+
+/** Галочка у имени: выдать или снять. */
+export async function verify(env, user, userId, body) {
+  assertAdmin(user);
+  const target = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(userId).first();
+  if (!target) fail(404, "Такого человека нет");
+  const on = body.on !== false;
+  await env.DB.batch([
+    on
+      ? env.DB.prepare("INSERT OR IGNORE INTO verified (user_id, granted_by, created_at) VALUES (?, ?, ?)").bind(userId, user.id, now())
+      : env.DB.prepare("DELETE FROM verified WHERE user_id = ?").bind(userId),
+    auditStmt(env, { kind: on ? "verify" : "unverify", target: `u:${userId}`, actorId: user.id }),
+  ]);
+  return { verified: on };
 }
 
 export async function bans(env, user) {
   assertAdmin(user);
   const { results } = await env.DB.prepare(
-    "SELECT * FROM users WHERE banned_until > ? ORDER BY banned_until DESC LIMIT 100"
+    `SELECT u.*, ${VERIFIED} FROM users u WHERE banned_until > ? ORDER BY banned_until DESC LIMIT 100`
   )
     .bind(now())
     .all();

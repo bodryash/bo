@@ -112,7 +112,8 @@ async function onMessage(env, message) {
     case "/restore": {
       const target = parseTarget(args[0]);
       if (!target) return reply(env, message, "Укажите, что: <code>p12</code> — пост, <code>c34</code> — комментарий.");
-      const result = command === "/del" ? await deleteTarget(env, target) : await restoreTarget(env, target);
+      const via = { note: `через бота (${message.from.first_name || "модератор"})` };
+      const result = command === "/del" ? await deleteTarget(env, target, via) : await restoreTarget(env, target, via);
       return reply(env, message, result);
     }
     case "/ban":
@@ -120,7 +121,7 @@ async function onMessage(env, message) {
     case "/unban": {
       const user = await findUser(env, args[0]);
       if (!user) return reply(env, message, "Не нашёл такого человека.");
-      await unbanUser(env, user.id);
+      await unbanUser(env, user.id, { note: "через бота" });
       return reply(env, message, `Бан снят: ${escapeHtml(displayName(user))}.`);
     }
     case "/hidden":
@@ -172,7 +173,7 @@ async function ban(env, message, args) {
     reasonWords = reasonWords.slice(1);
   }
   const reason = reasonWords.join(" ").slice(0, 200);
-  const until = await banUser(env, user.id, days, reason);
+  const until = await banUser(env, user.id, days, reason, { note: "через бота" });
   const when = days ? `до ${formatDate(until)}` : "навсегда";
   return reply(env, message, `⛔ ${escapeHtml(displayName(user))} (№${user.id}) — бан ${when}.`);
 }
@@ -246,13 +247,14 @@ async function onCallback(env, query) {
   const target = parseTarget(m[2]);
 
   let result;
-  if (m[1] === "ok") result = await restoreTarget(env, target);
+  const via = { note: `через бота (${query.from.first_name || "модератор"})` };
+  if (m[1] === "ok") result = await restoreTarget(env, target, via);
   else {
-    result = await deleteTarget(env, target);
+    result = await deleteTarget(env, target, via);
     if (m[1] === "ban") {
       const info = await describeTarget(env, target);
       if (info?.author) {
-        await banUser(env, info.author.id, 7, "жалобы на контент");
+        await banUser(env, info.author.id, 7, "жалобы на контент", via);
         result += ", автор забанен на 7 дней";
       }
     }

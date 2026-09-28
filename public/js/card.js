@@ -4,20 +4,33 @@
  */
 
 import { api, imageUrl, postCache, postLink, store } from "./api.js";
-import { FACULTY, REPORT_REASONS, RUBRIC, studentLine } from "./data.js";
+import { FACULTY, LIMITS, REPORT_REASONS, RUBRIC, studentLine } from "./data.js";
 import { go } from "./router.js";
 import { haptic, openLink } from "./tg.js";
-import { actionSheet, ago, avatar, confirmDialog, eventBadge, eventDate, formatPrice, h, icon, plural, richText, toast } from "./ui.js";
+import { actionSheet, ago, avatar, confirmDialog, eventBadge, eventDate, formatPrice, h, icon, plural, richText, tick, toast } from "./ui.js";
 import { openViewer } from "./viewer.js";
-import { banSheet } from "./profile.js";
+import { editSheet, editedMark, modActions, removalText, shieldButton } from "./modtools.js";
 import { bump, heartBurst, pressable } from "./gestures.js";
 
 const CLOSED_LABEL = { market: "Продано", lost: "Нашлось", housing: "Уже не актуально" };
 
-export function postCard(post, { full = false, showScope = false, onRemove, index = 0, appear = true } = {}) {
+export function postCard(post, { full = false, showScope = false, onRemove, onChange, index = 0, appear = true } = {}) {
   postCache.set(post.id, post);
   const card = h("article.post" + (appear ? ".appear" : ""), { dataset: { id: post.id }, style: { "--i": Math.min(index, 8) } });
+  // Перерисовать на месте — после правки или «Продано».
+  const redraw = (next) => {
+    const fresh = postCard(next, { full, showScope, onRemove, onChange, appear: false });
+    card.replaceWith(fresh);
+    onChange?.(next, fresh);
+  };
+  // Модератор удалил из ленты — карточка сжимается и исчезает.
+  const removed = () => {
+    card.classList.add("leaving");
+    setTimeout(() => card.remove(), 260);
+    onRemove?.();
+  };
   if (post.closed) card.classList.add("closed");
+  if (post.hidden === 2) card.classList.add("deleted");
   if (!full) card.classList.add("tappable");
   // Касание — открыть пост, двойное — лайк с сердцем, долгое — меню.
   pressable(card, {
@@ -29,12 +42,13 @@ export function postCard(post, { full = false, showScope = false, onRemove, inde
       if (!post.liked) card.querySelector(".act.like")?.click();
       else haptic.tap();
     },
-    onLongPress: () => postMenu(post, { onRemove, card }),
+    onLongPress: () => postMenu(post, { card, redraw, removed }),
   });
 
-  card.append(header(post, { showScope, onRemove, card }));
+  card.append(header(post, { showScope, card, redraw, removed }));
   if (post.mod_author) card.append(modAuthor(post.mod_author));
-  if (post.hidden === 1) card.append(h("div.notice.warn", "Пост скрыт жалобами и ждёт решения модератора. Остальным он не виден."));
+  if (post.removal) card.append(removalNotice(post));
+  else if (post.hidden === 1) card.append(h("div.notice.warn", "Пост скрыт жалобами и ждёт решения модератора. Остальным он не виден."));
   if (post.rubric === "event" && post.event_at) card.append(eventBlock(post));
   if (post.rubric === "market" && post.price !== null) card.append(h("div.price", formatPrice(post.price)));
   if (post.closed) card.append(h("div.closed-badge", icon("check"), CLOSED_LABEL[post.rubric] || "Закрыто"));
@@ -50,7 +64,7 @@ export function postCard(post, { full = false, showScope = false, onRemove, inde
   return card;
 }
 
-function header(post, { showScope, onRemove, card }) {
+function header(post, { showScope, card, redraw, removed }) {
   const rubric = RUBRIC[post.rubric];
   const who = post.author;
   const line = [];
@@ -63,16 +77,23 @@ function header(post, { showScope, onRemove, card }) {
   line.push(ago(post.created_at));
 
   const name = who ? who.name : "Аноним";
+  const admin = store.me?.admin && !post.mine;
   const headerEl = h(
     "header.post-head",
     h(
       "button.post-author",
       { onclick: () => who && go(`/u/${who.id}`), disabled: !who },
       avatar(who, 40),
-      h("div.post-meta", h("div.post-name", name, post.mine && !who ? h("span.me-tag", "это вы") : null), h("div.post-sub", line.filter(Boolean).join(" · ")))
+      h(
+        "div.post-meta",
+        h("div.post-name", h("span.name-text", name), tick(who), post.mine && !who ? h("span.me-tag", "это вы") : null),
+        h("div.post-sub", line.filter(Boolean).join(" · "))
+      )
     ),
     h("span.rubric-tag", { dataset: { rubric: post.rubric } }, rubric ? `${rubric.emoji} ${rubric.name}` : ""),
-    h("button.icon-btn.more", { "aria-label": "Ещё", onclick: () => postMenu(post, { onRemove, card }) }, icon("more"))
+    // Щит — модератору прямо в ленте: бан, удаление, кто за анонимкой.
+    admin ? shieldButton(() => postModeration(post, removed, redraw)) : null,
+    h("button.icon-btn.more", { "aria-label": "Ещё", onclick: () => postMenu(post, { card, redraw, removed }) }, icon("more"))
   );
   return headerEl;
 }
@@ -90,6 +111,30 @@ export function modAuthor(author) {
     h("b", author.name),
     author.faculty ? h("span", " · " + studentLine(author)) : null
   );
+}
+
+/** Модератору на удалённом посте: кто и когда. */
+function removalNotice(post) {
+  const r = post.removal;
+  const by = r.by ? ` · ${r.by.name}` : "";
+  return h(
+    "div.notice." + (r.kind === "hide" ? "warn" : "danger"),
+    icon(r.kind === "hide" ? "flag" : "trash"),
+    h("span", `${removalText(r.kind, r.note)}${by}${r.at ? " · " + ago(r.at) : ""}. Видно только модераторам.`)
+  );
+}
+
+function postModeration(post, removed, redraw) {
+  modActions({
+    target: `p:${post.id}`,
+    author: post.author || post.mod_author,
+    edited: post.edited,
+    hidden: post.hidden,
+    // В ленте удалённое исчезает; на экране поста модератор остаётся и
+    // видит плашку «Удалён» — там перерисовываем со свежими данными.
+    onRemoved: removed,
+    onRestored: () => api.get(`/api/posts/${post.id}`).then((d) => redraw(d.post), () => {}),
+  });
 }
 
 function eventBlock(post) {
@@ -270,6 +315,8 @@ function actions(post, { full }) {
       h("span", post.comments ? String(post.comments) : "")
     ),
     h("div.spacer"),
+    // В шапке места нет — «изменено» рядом с «Поделиться», как в Telegram.
+    post.edited ? editedMark(`p:${post.id}`) : null,
     h("button.act", { "aria-label": "Поделиться", onclick: (e) => (e.stopPropagation(), share(post)) }, icon("share"))
   );
 }
@@ -280,7 +327,7 @@ export function share(post) {
   openLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
 }
 
-function postMenu(post, { onRemove, card }) {
+function postMenu(post, { card, redraw, removed }) {
   const closable = ["market", "lost", "housing"].includes(post.rubric);
   actionSheet([
     { label: "Поделиться", icon: "share", onClick: () => share(post) },
@@ -297,40 +344,37 @@ function postMenu(post, { onRemove, card }) {
       },
     },
     post.mine &&
+      !post.hidden && {
+        label: "Редактировать",
+        icon: "edit",
+        onClick: () =>
+          editSheet({
+            title: "Правка поста",
+            text: post.text,
+            max: LIMITS.postText,
+            onSave: async (text) => {
+              const res = await api.post(`/api/posts/${post.id}/edit`, { text });
+              redraw(res.post);
+            },
+          }),
+      },
+    post.mine &&
       closable && {
         label: post.closed ? "Снова актуально" : CLOSED_LABEL[post.rubric],
         icon: "check",
         onClick: async () => {
           try {
             const res = await api.post(`/api/posts/${post.id}/close`, { closed: !post.closed });
-            post.closed = res.closed;
-            card.replaceWith(postCard(post, { full: card.classList.contains("tappable") === false, onRemove }));
+            redraw({ ...post, closed: res.closed });
           } catch (err) {
             toast(err.message, "error");
           }
         },
       },
     !post.mine && { label: "Пожаловаться", icon: "flag", onClick: () => reportSheet(`p:${post.id}`) },
-    store.me?.admin &&
-      !post.mine && {
-        label: "Удалить и забанить автора",
-        icon: "shield",
-        danger: true,
-        onClick: () =>
-          banSheet(post.author || post.mod_author, async (days) => {
-            try {
-              const res = await api.post("/api/admin/act", { target: `p:${post.id}`, action: "ban", days });
-              haptic.warning();
-              toast(res.result);
-              card.remove();
-              onRemove?.();
-            } catch (err) {
-              toast(err.message, "error");
-            }
-          }),
-      },
-    post.can_delete && {
-      label: post.mine ? "Удалить пост" : "Удалить (модератор)",
+    store.me?.admin && !post.mine && { label: "Модерация…", icon: "shield", onClick: () => postModeration(post, removed, redraw) },
+    post.mine && {
+      label: "Удалить пост",
       icon: "trash",
       danger: true,
       onClick: async () => {
@@ -339,8 +383,7 @@ function postMenu(post, { onRemove, card }) {
           await api.post(`/api/posts/${post.id}/delete`);
           haptic.success();
           toast("Пост удалён");
-          card.remove();
-          onRemove?.();
+          removed();
         } catch (err) {
           toast(err.message, "error");
         }

@@ -150,3 +150,24 @@ CREATE TABLE IF NOT EXISTS follows (
   PRIMARY KEY (follower_id, followee_id)
 );
 CREATE INDEX IF NOT EXISTS follows_followee ON follows (followee_id, created_at DESC);
+
+-- Журнал: правки, удаления, решения модераторов, баны, галочки. Для правки
+-- хранится текст до неё — модератор видит всю историю. target — p:12,
+-- c:34 или u:5; actor_id — кто сделал (NULL — система: жалобы, бот).
+CREATE TABLE IF NOT EXISTS audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  target TEXT NOT NULL,
+  actor_id INTEGER,
+  old_text TEXT,
+  note TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audit_target ON audit (target, id);
+
+-- Галочка у имени. Модераторы получают её сами; остальным выдают они.
+CREATE TABLE IF NOT EXISTS verified (
+  user_id INTEGER PRIMARY KEY,
+  granted_by INTEGER,
+  created_at INTEGER NOT NULL
+);

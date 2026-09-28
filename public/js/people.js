@@ -4,7 +4,7 @@ import { errorState } from "./feed.js";
 import { bump } from "./gestures.js";
 import { go } from "./router.js";
 import { haptic } from "./tg.js";
-import { avatar, emptyState, h, spinner, toast } from "./ui.js";
+import { avatar, emptyState, h, spinner, tick, toast } from "./ui.js";
 
 /**
  * Кнопка «Подписаться / Вы подписаны». Нажатие видно сразу, запрос —
@@ -47,7 +47,7 @@ export function peopleList(users, { onFollow } = {}) {
         "div.person.appear",
         { style: { "--i": Math.min(i, 10) }, onclick: () => go(`/u/${u.id}`) },
         avatar(u, 44),
-        h("div.person-text", h("div.person-name", u.name), h("div.person-sub", studentLine(u))),
+        h("div.person-text", h("div.person-name", h("span.name-text", u.name), tick(u)), h("div.person-sub", studentLine(u))),
         u.self || u.id === store.me?.id ? null : followButton(u, { small: true, onChange: onFollow })
       )
     )

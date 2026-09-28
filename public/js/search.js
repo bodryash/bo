@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { postCard } from "./card.js";
 import { errorState, skeleton } from "./feed.js";
 import { go } from "./router.js";
-import { avatar, emptyState, h, icon, spinner } from "./ui.js";
+import { avatar, emptyState, h, icon, spinner, tick } from "./ui.js";
 import { studentLine } from "./data.js";
 
 /**
@@ -63,7 +63,7 @@ export function searchScreen() {
           h(
             "div.people",
             data.users.map((u) =>
-              h("button.person.appear", { onclick: () => go(`/u/${u.id}`) }, avatar(u, 44), h("div.person-text", h("div.person-name", u.name), h("div.person-sub", studentLine(u))))
+              h("button.person.appear", { onclick: () => go(`/u/${u.id}`) }, avatar(u, 44), h("div.person-text", h("div.person-name", h("span.name-text", u.name), tick(u)), h("div.person-sub", studentLine(u))))
             )
           )
         );

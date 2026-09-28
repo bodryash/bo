@@ -1,6 +1,6 @@
 /**
  * Модерация в приложении: что скрыто жалобами и что ждёт решения, кто в
- * бане. То же, что в боте, — но видно автора и текст целиком, а решения
+ * бане, журнал правок и удалений. То же, что в боте, — но видно автора и текст целиком, а решения
  * принимаются одним касанием. Только для модераторов (ADMIN_IDS).
  */
 
@@ -9,7 +9,8 @@ import { errorState } from "./feed.js";
 import { banSheet } from "./profile.js";
 import { go } from "./router.js";
 import { haptic } from "./tg.js";
-import { ago, avatar, emptyState, h, icon, spinner, syncThumb, toast } from "./ui.js";
+import { ago, avatar, emptyState, h, icon, spinner, syncThumb, syncPill, tick, toast } from "./ui.js";
+import { historySheet } from "./modtools.js";
 import { studentLine } from "./data.js";
 
 export function modScreen() {
@@ -17,6 +18,7 @@ export function modScreen() {
   const seg = h("div.segmented.wide");
   const tabs = [
     ["queue", "Жалобы"],
+    ["log", "Журнал"],
     ["bans", "Баны"],
   ].map(([id, name]) => h("button", { dataset: { id }, onclick: () => (tab !== id ? ((tab = id), haptic.select(), paint(), load()) : null) }, name));
   seg.append(...tabs);
@@ -31,6 +33,7 @@ export function modScreen() {
   async function load() {
     body.replaceChildren(h("div.center-pad", spinner()));
     try {
+      if (tab === "log") return await journal();
       if (tab === "queue") {
         const { items } = await api.get("/api/admin/queue");
         body.replaceChildren(
@@ -110,6 +113,91 @@ export function modScreen() {
       )
     );
     return node;
+  }
+
+  // ——— журнал ———
+
+  let group = "";
+  const GROUPS = [
+    ["", "Всё"],
+    ["edit", "Правки"],
+    ["delete", "Удаления"],
+    ["people", "Баны и галочки"],
+  ];
+
+  // Фильтры создаются один раз: подсветка переезжает, а не появляется.
+  const chipBtns = GROUPS.map(([id, name]) =>
+    h(
+      "button.chip",
+      {
+        dataset: { id },
+        onclick: () => {
+          if (group === id) return;
+          group = id;
+          haptic.select();
+          journal();
+        },
+      },
+      name
+    )
+  );
+  const chips = h("div.chips.log-chips", chipBtns);
+  const logList = h("div.log-list");
+
+  async function journal() {
+    for (const b of chipBtns) b.classList.toggle("on", b.dataset.id === group);
+    if (chips.parentNode !== body) body.replaceChildren(chips, logList);
+    logList.replaceChildren(h("div.center-pad", spinner()));
+    requestAnimationFrame(() => syncPill(chips));
+    await page(logList, null, true);
+  }
+
+  async function page(listEl, before, reset) {
+    const p = new URLSearchParams();
+    if (group) p.set("kind", group);
+    if (before) p.set("before", before);
+    try {
+      const { events, next } = await api.get("/api/admin/log?" + p);
+      if (reset) listEl.replaceChildren();
+      listEl.querySelector(".log-more")?.remove();
+      if (reset && !events.length) listEl.append(emptyState("📭", "Журнал пуст", "Здесь появятся правки, удаления, баны и галочки."));
+      events.forEach((e, i) => listEl.append(logItem(e, i)));
+      if (next) {
+        const more = h("button.btn.block.log-more", { onclick: () => ((more.disabled = true), page(listEl, next, false)) }, "Показать ещё");
+        listEl.append(more);
+      }
+    } catch (err) {
+      if (reset) listEl.replaceChildren(errorState(err, load));
+      else toast(err.message, "error");
+    }
+  }
+
+  const KIND_ICON = { edit: "edit", delete: "trash", hide: "flag", restore: "check", ban: "lock", unban: "lock", verify: "check", unverify: "close" };
+  const TARGET = { p: "пост", c: "комментарий", u: "" };
+
+  function logItem(e, i) {
+    const [t] = e.target.split(":");
+    const who = e.actor ? e.actor.name : "система";
+    const open = () => (e.post_id ? go(e.post_id && t === "c" ? `/p/${e.post_id}/c${e.target.slice(2)}` : `/p/${e.post_id}`) : e.target_user && go(`/u/${e.target_user.id}`));
+    return h(
+      "div.log-item.appear.kind-" + e.kind,
+      { style: { "--i": Math.min(i, 10) } },
+      h("span.log-icon", icon(KIND_ICON[e.kind] || "shield")),
+      h(
+        "div.log-main",
+        h(
+          "div.log-head",
+          h("b", e.label),
+          TARGET[t] ? ` · ${TARGET[t]}` : "",
+          e.target_user ? [" · ", h("button.link-btn", { onclick: open }, e.target_user.name), tick(e.target_user)] : "",
+          h("span.log-time", ago(e.created_at))
+        ),
+        h("div.log-who", e.actor ? h("button.link-btn", { onclick: () => go(`/u/${e.actor.id}`) }, who) : who, e.note ? ` · ${e.note}` : ""),
+        e.kind === "edit" && e.old_text ? h("div.log-text.old", h("span.log-label", "было"), e.old_text) : null,
+        e.target_text != null ? h("button.log-text", { onclick: open }, e.kind === "edit" ? h("span.log-label", "сейчас") : null, e.target_text) : null,
+        t !== "u" ? h("button.link-btn.log-history", { onclick: () => historySheet(e.target) }, "вся история") : null
+      )
+    );
   }
 
   paint();

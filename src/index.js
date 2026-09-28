@@ -8,14 +8,15 @@
  */
 
 import { handleUpdate } from "./bot.js";
-import { addComment, commentsQuery, deleteComment, listComments } from "./comments.js";
+import { addComment, commentsQuery, deleteComment, editComment, listComments } from "./comments.js";
 import { cleanupOrphans, serveImage, upload } from "./media.js";
 import { report } from "./moderation.js";
 import { listNotifications } from "./notify.js";
-import { closePost, createPost, deletePost, feed, getPostView, likePost, postQuery, search, votePost } from "./posts.js";
+import { closePost, createPost, deletePost, editPost, feed, getPostView, likePost, postQuery, search, votePost } from "./posts.js";
 import { checkWebhook, handleSetup } from "./setup.js";
 import { follow, followList, suggestions } from "./social.js";
-import { act, banById, bans, queue } from "./admin.js";
+import { act, banById, bans, queue, verify } from "./admin.js";
+import { history, log } from "./audit.js";
 import { battle } from "./battle.js";
 import { getMe, getProfile, updateMe, viewer } from "./users.js";
 import { DAY, HttpError, json, now, readJson } from "./util.js";
@@ -33,6 +34,9 @@ const ROUTES = [
   ["GET", "/api/admin/queue", (c) => queue(c.env, c.user)],
   ["POST", "/api/admin/act", async (c) => act(c.env, c.user, await readJson(c.request)), { fresh: true }],
   ["GET", "/api/admin/bans", (c) => bans(c.env, c.user)],
+  ["POST", "/api/admin/users/:id/verify", async (c) => verify(c.env, c.user, c.id, await readJson(c.request))],
+  ["GET", "/api/admin/history", (c) => history(c.env, c.user, c.url.searchParams.get("target"))],
+  ["GET", "/api/admin/log", (c) => log(c.env, c.user, c.url.searchParams.get("before"), c.url.searchParams.get("kind"))],
   ["POST", "/api/admin/users/:id/ban", async (c) => banById(c.env, c.user, c.id, await readJson(c.request)), { fresh: true }],
   ["GET", "/api/feed", (c) => feed(c.env, c.user, c.url.searchParams)],
   ["GET", "/api/search", (c) => search(c.env, c.user, c.url.searchParams.get("q"))],
@@ -42,7 +46,7 @@ const ROUTES = [
     "/api/posts/:id",
     async (c) => {
       // Пост и комментарии — одним походом в базу.
-      const [p, cm] = await c.env.DB.batch([postQuery(c.env, c.id), commentsQuery(c.env, c.id)]);
+      const [p, cm] = await c.env.DB.batch([postQuery(c.env, c.id), commentsQuery(c.env, c.id, c.user.admin)]);
       const row = p.results[0];
       return {
         post: await getPostView(c.env, c.user, c.id, row),
@@ -51,6 +55,8 @@ const ROUTES = [
     },
   ],
   ["POST", "/api/posts/:id/delete", (c) => deletePost(c.env, c.user, c.id)],
+  ["POST", "/api/posts/:id/edit", async (c) => editPost(c.env, c.user, c.id, await readJson(c.request)), { fresh: true }],
+  ["POST", "/api/comments/:id/edit", async (c) => editComment(c.env, c.user, c.id, await readJson(c.request)), { fresh: true }],
   ["POST", "/api/posts/:id/close", async (c) => closePost(c.env, c.user, c.id, await readJson(c.request))],
   ["POST", "/api/posts/:id/like", async (c) => likePost(c.env, c.user, c.id, await readJson(c.request), c.ctx)],
   ["POST", "/api/posts/:id/vote", async (c) => votePost(c.env, c.user, c.id, await readJson(c.request))],

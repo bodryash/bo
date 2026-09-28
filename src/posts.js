@@ -1,7 +1,8 @@
 import { FACULTY, LIMITS, RUBRIC } from "../public/js/data.js";
 import { notify } from "./notify.js";
-import { AUTHOR_COLUMNS, assertCanWrite, authorFromRow, publicUser } from "./users.js";
+import { AUTHOR_COLUMNS, VERIFIED, assertCanWrite, authorFromRow, publicUser } from "./users.js";
 import { DAY, charCount, cleanText, fail, now, searchKey } from "./util.js";
+import { auditStmt } from "./audit.js";
 
 const PAGE = 20;
 
@@ -71,6 +72,7 @@ export async function hydrate(env, rows, viewerUser) {
       place: r.place,
       poll,
       closed: !!r.closed,
+      edited: !!r.edited_at,
       media: mediaBy.get(r.id) || [],
       likes: r.likes,
       comments: r.comments,
@@ -209,15 +211,55 @@ export async function loadPost(env, id) {
 }
 
 export async function getPostView(env, viewerUser, id, preloaded) {
-  const row = preloaded || (await loadPost(env, id));
-  if (!row || row.hidden === 2) fail(404, "Пост удалён или его не было");
+  const row = preloaded || (await postQuery(env, id).first());
+  // Удалённый пост модератор открыть может — чтобы видеть, что было.
+  if (!row || (row.hidden === 2 && !viewerUser.admin)) fail(404, "Пост удалён или его не было");
   // Скрытый жалобами пост видят только автор и модераторы — чтобы понимать,
   // что с ним случилось.
   if (row.hidden === 1 && row.author_id !== viewerUser.id && !viewerUser.admin) {
     fail(404, "Пост скрыт по жалобам и ждёт модератора");
   }
   const [post] = await hydrate(env, [row], viewerUser);
+  if (row.hidden && viewerUser.admin) post.removal = await removalInfo(env, `p:${id}`);
   return post;
+}
+
+/** Кто и когда удалил или скрыл — для модератора. */
+export async function removalInfo(env, target) {
+  const r = await env.DB.prepare(
+    `SELECT a.kind, a.note, a.created_at, ${AUTHOR_COLUMNS} FROM audit a LEFT JOIN users u ON u.id = a.actor_id
+     WHERE a.target = ? AND a.kind IN ('delete', 'hide') ORDER BY a.id DESC LIMIT 1`
+  )
+    .bind(target)
+    .first();
+  return r ? { kind: r.kind, note: r.note, at: r.created_at, by: r.a_id ? authorFromRow(r) : null } : { kind: "delete", note: null, at: null, by: null };
+}
+
+/**
+ * Правка поста — только автором. Прежний текст уходит в журнал: модератор
+ * видит всю историю, остальные — пометку «изменено».
+ */
+export async function editPost(env, user, id, body) {
+  assertCanWrite(user);
+  const row = await loadPost(env, id);
+  if (row.author_id !== user.id) fail(403, "Править можно только свой пост");
+  if (row.hidden) fail(403, "Пост скрыт — править нельзя");
+  const text = cleanText(body.text);
+  const hasMedia = await env.DB.prepare("SELECT 1 FROM media WHERE post_id = ? LIMIT 1").bind(id).first();
+  if (!text && (!hasMedia || row.poll)) fail(400, "Напишите что-нибудь");
+  if (charCount(text) > LIMITS.postText) fail(400, `Пост длиннее ${LIMITS.postText} знаков`);
+  if (text !== row.text) {
+    await env.DB.batch([
+      auditStmt(env, { kind: "edit", target: `p:${id}`, actorId: user.id, oldText: row.text }),
+      env.DB.prepare("UPDATE posts SET text = ?, search = ?, edited_at = ? WHERE id = ?").bind(
+        text,
+        searchKey([text, row.place].filter(Boolean).join(" ")),
+        now(),
+        id
+      ),
+    ]);
+  }
+  return { post: await getPostView(env, user, id) };
 }
 
 export async function createPost(env, user, body) {
@@ -305,7 +347,10 @@ export async function createPost(env, user, body) {
 export async function deletePost(env, user, id) {
   const row = await loadPost(env, id);
   if (row.author_id !== user.id && !user.admin) fail(403, "Удалить можно только свой пост");
-  await env.DB.prepare("UPDATE posts SET hidden = 2 WHERE id = ?").bind(id).run();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE posts SET hidden = 2 WHERE id = ?").bind(id),
+    auditStmt(env, { kind: "delete", target: `p:${id}`, actorId: user.id, note: row.author_id === user.id ? "автором" : "модератором" }),
+  ]);
   return { ok: true };
 }
 
@@ -395,7 +440,7 @@ export async function search(env, viewerUser, q) {
 
   const [users, posts] = await env.DB.batch([
     env.DB.prepare(
-      `SELECT * FROM users WHERE faculty IS NOT NULL AND search LIKE ? ESCAPE '\\' ORDER BY seen_at DESC LIMIT 20`
+      `SELECT u.*, ${VERIFIED} FROM users u WHERE faculty IS NOT NULL AND search LIKE ? ESCAPE '\\' ORDER BY seen_at DESC LIMIT 20`
     ).bind(like),
     env.DB.prepare(`${POST_SELECT} WHERE p.hidden = 0 AND p.search LIKE ? ESCAPE '\\' ORDER BY p.id DESC LIMIT 30`).bind(
       like

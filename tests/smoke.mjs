@@ -486,6 +486,68 @@ await step("битва факультетов: очки, потолок в де�
   assert.ok(b.end - b.start === 7 * 86400);
 });
 
+await step("правки и удаления: автор правит, модератор видит историю и удалённое", async () => {
+  const post = await vera.post("/api/posts", { rubric: "talk", text: "Первая версия" });
+  const id = post.post.id;
+  const foreign = await anya.post(`/api/posts/${id}/edit`, { text: "взлом" });
+  assert.equal(foreign.status, 403, "чужой пост не править");
+  const edited = await vera.post(`/api/posts/${id}/edit`, { text: "Вторая версия" });
+  assert.equal(edited.post.text, "Вторая версия");
+  assert.equal(edited.post.edited, true);
+  await vera.post(`/api/posts/${id}/edit`, { text: "Третья версия" });
+
+  assert.equal((await anya.get(`/api/admin/history?target=p:${id}`)).status, 403, "историю видит только модератор");
+  const h = await admin.get(`/api/admin/history?target=p:${id}`);
+  assert.deepEqual(h.events.filter((e) => e.kind === "edit").map((e) => e.old_text), ["Первая версия", "Вторая версия"]);
+  assert.equal(h.current.text, "Третья версия");
+
+  const c = await anya.post(`/api/posts/${id}/comments`, { text: "Опечатка" });
+  const ce = await anya.post(`/api/comments/${c.comment.id}/edit`, { text: "Исправила" });
+  assert.equal(ce.text, "Исправила");
+  assert.equal((await vera.post(`/api/comments/${c.comment.id}/edit`, { text: "чужое" })).status, 403);
+  await anya.post(`/api/comments/${c.comment.id}/delete`);
+
+  const forUser = await boris.get(`/api/posts/${id}`);
+  assert.ok(!forUser.comments.some((x) => x.id === c.comment.id), "удалённый комментарий обычным не виден");
+  const forAdmin = await admin.get(`/api/posts/${id}`);
+  const removed = forAdmin.comments.find((x) => x.id === c.comment.id);
+  assert.equal(removed.removed.kind, "delete");
+  assert.equal(removed.removed.note, "автором");
+  assert.equal(removed.edited, true);
+
+  await vera.post(`/api/posts/${id}/delete`);
+  assert.equal((await boris.get(`/api/posts/${id}`)).status, 404);
+  const deleted = await admin.get(`/api/posts/${id}`);
+  assert.equal(deleted.post.hidden, 2, "модератор открывает удалённый пост");
+  assert.equal(deleted.post.removal.by.name, "Вера");
+
+  const journal = await admin.get("/api/admin/log");
+  assert.ok(journal.events.some((e) => e.kind === "delete" && e.target === `p:${id}` && e.target_text === "Третья версия"));
+  assert.equal((await boris.get("/api/admin/log")).status, 403);
+});
+
+await step("галочка: модератор получает сам, выдаёт и снимает другим", async () => {
+  assert.equal((await admin.get("/api/me")).me.verified, true, "модератору — сразу");
+  const veraMe = (await vera.get("/api/me")).me;
+  assert.equal(veraMe.verified, false);
+  assert.equal((await boris.post(`/api/admin/users/${veraMe.id}/verify`, { on: true })).status, 403);
+  await admin.post(`/api/admin/users/${veraMe.id}/verify`, { on: true });
+  const prof = await boris.get(`/api/users/${veraMe.id}`);
+  assert.equal(prof.user.verified, true);
+  const inFeed = (await boris.get("/api/feed?scope=msu")).posts.find((p) => p.author?.id === veraMe.id);
+  assert.equal(inFeed.author.verified, true, "галочка видна и в ленте");
+  await admin.post(`/api/admin/users/${veraMe.id}/verify`, { on: false });
+  assert.equal((await boris.get(`/api/users/${veraMe.id}`)).user.verified, false);
+
+  // Журнал с фильтром «Баны и галочки»: только эти события, с именем человека.
+  const people = await admin.get("/api/admin/log?kind=people");
+  assert.ok(people.events.length >= 2);
+  assert.ok(people.events.every((e) => ["ban", "unban", "verify", "unverify"].includes(e.kind)));
+  assert.equal(people.events.find((e) => e.target === `u:${veraMe.id}`).target_user.name, "Вера");
+  const edits = await admin.get("/api/admin/log?kind=edit");
+  assert.ok(edits.events.length && edits.events.every((e) => e.kind === "edit" && e.old_text));
+});
+
 await step("бан через бота запрещает писать", async () => {
   const me = await gleb.get("/api/me");
   await fetch(BASE + "/tg", {

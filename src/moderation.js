@@ -1,5 +1,6 @@
 import { REPORT_REASONS } from "../public/js/data.js";
 import { removeComment } from "./comments.js";
+import { auditStmt } from "./audit.js";
 import { appUrl } from "./notify.js";
 import { displayName } from "./users.js";
 import { DAY, adminIds, callTelegram, clip, escapeHtml, fail, now } from "./util.js";
@@ -53,12 +54,14 @@ export async function report(env, user, body, ctx) {
 }
 
 async function hideByReports(env, target, row) {
+  const log = auditStmt(env, { kind: "hide", target: `${target.type}:${target.id}`, note: "три жалобы" });
   if (target.type === "p") {
-    await env.DB.prepare("UPDATE posts SET hidden = 1 WHERE id = ? AND hidden = 0").bind(target.id).run();
+    await env.DB.batch([env.DB.prepare("UPDATE posts SET hidden = 1 WHERE id = ? AND hidden = 0").bind(target.id), log]);
   } else {
     await env.DB.batch([
       env.DB.prepare("UPDATE comments SET hidden = 1 WHERE id = ? AND hidden = 0").bind(target.id),
       env.DB.prepare("UPDATE posts SET comments = MAX(comments - 1, 0) WHERE id = ?").bind(row.post_id),
+      log,
     ]);
   }
 }
@@ -131,44 +134,57 @@ export async function alertAdmins(env, target) {
 }
 
 /** Вернуть: жалобы обнуляются, чтобы те же трое не спрятали снова. */
-export async function restoreTarget(env, target) {
+/** actorId — модератор в приложении; из бота — null, note «через бота». */
+export async function restoreTarget(env, target, { actorId = null, note = null } = {}) {
   const row = await loadTarget(env, target);
   if (!row) return "Не найдено";
   if (row.hidden === 0) return "И так виден";
   const key = `${target.type}:${target.id}`;
+  const log = auditStmt(env, { kind: "restore", target: key, actorId, note });
   if (target.type === "p") {
     await env.DB.batch([
       env.DB.prepare("UPDATE posts SET hidden = 0, reports = 0 WHERE id = ?").bind(target.id),
       env.DB.prepare("DELETE FROM reports WHERE target = ?").bind(key),
+      log,
     ]);
   } else {
     await env.DB.batch([
       env.DB.prepare("UPDATE comments SET hidden = 0, reports = 0 WHERE id = ?").bind(target.id),
+      // Удалённый (а не скрытый) комментарий уже вычтен — возвращаем в счётчик.
       env.DB.prepare("UPDATE posts SET comments = comments + 1 WHERE id = ?").bind(row.post_id),
       env.DB.prepare("DELETE FROM reports WHERE target = ?").bind(key),
+      log,
     ]);
   }
   return "Возвращено";
 }
 
-export async function deleteTarget(env, target) {
+export async function deleteTarget(env, target, { actorId = null, note = "модератором" } = {}) {
   const row = await loadTarget(env, target);
   if (!row) return "Не найдено";
   if (row.hidden === 2) return "Уже удалено";
-  if (target.type === "p") await env.DB.prepare("UPDATE posts SET hidden = 2 WHERE id = ?").bind(target.id).run();
-  else await removeComment(env, row);
+  if (target.type === "p") {
+    await env.DB.batch([
+      env.DB.prepare("UPDATE posts SET hidden = 2 WHERE id = ?").bind(target.id),
+      auditStmt(env, { kind: "delete", target: `p:${target.id}`, actorId, note }),
+    ]);
+  } else await removeComment(env, row, { actorId, note });
   return "Удалено";
 }
 
 /** days = 0 — навсегда. */
-export async function banUser(env, userId, days, reason) {
+export async function banUser(env, userId, days, reason, { actorId = null, note = null } = {}) {
   const until = days > 0 ? now() + days * DAY : now() + 100 * 365 * DAY;
-  await env.DB.prepare("UPDATE users SET banned_until = ?, ban_reason = ? WHERE id = ?")
-    .bind(until, reason || null, userId)
-    .run();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET banned_until = ?, ban_reason = ? WHERE id = ?").bind(until, reason || null, userId),
+    auditStmt(env, { kind: "ban", target: `u:${userId}`, actorId, note: [days ? `${days} дн.` : "навсегда", reason, note].filter(Boolean).join(" · ") }),
+  ]);
   return until;
 }
 
-export async function unbanUser(env, userId) {
-  await env.DB.prepare("UPDATE users SET banned_until = 0, ban_reason = NULL WHERE id = ?").bind(userId).run();
+export async function unbanUser(env, userId, { actorId = null, note = null } = {}) {
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET banned_until = 0, ban_reason = NULL WHERE id = ?").bind(userId),
+    auditStmt(env, { kind: "unban", target: `u:${userId}`, actorId, note }),
+  ]);
 }

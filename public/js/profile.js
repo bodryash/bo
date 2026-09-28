@@ -4,7 +4,8 @@ import { FACULTY, FACULTIES, LEVEL, LEVELS, LIMITS, studentLine } from "./data.j
 import { errorState, skeleton } from "./feed.js";
 import { back, go } from "./router.js";
 import { haptic, openLink } from "./tg.js";
-import { actionSheet, autoGrow, avatar, emptyState, h, icon, plural, sheet, spinner, toast, toggle } from "./ui.js";
+import { actionSheet, autoGrow, avatar, emptyState, h, icon, plural, sheet, spinner, tick, toast, toggle } from "./ui.js";
+import { historySheet } from "./modtools.js";
 import { followButton } from "./people.js";
 import { insideTelegram, tg } from "./tg.js";
 
@@ -74,7 +75,7 @@ export function profileScreen({ id } = {}) {
     const card = h(
       "div.profile-card",
       avatar(user, 88),
-      h("div.profile-name", user.name, self && me?.admin ? h("span.mod-tag", icon("shield"), "модератор") : null),
+      h("div.profile-name", h("span.name-text", user.name), tick(user), self && me?.admin ? h("span.mod-tag", icon("shield"), "модератор") : null),
       h("div.profile-line", studentLine(user) || "Профиль не заполнен"),
       follows_me && !self ? h("div.follows-me", "подписан(а) на вас") : null,
       f ? h("button.profile-fac", { onclick: () => go(`/f/${f.id}`) }, f.name, icon("chevron")) : null,
@@ -93,9 +94,10 @@ export function profileScreen({ id } = {}) {
     content.replaceChildren(card, h("div.section-label.pad", self ? "Мои посты" : "Посты"), posts, sentinel);
   }
 
-  /** Для модератора на чужом профиле: скрытый ник, бан, разбан. */
+  /** Для модератора на чужом профиле: скрытый ник, бан, разбан, галочка. */
   function modPanel(user, mod) {
     const status = h("div.mod-status");
+    let verified = !!user.verified;
     const paint = (until, reason) => {
       status.replaceChildren(
         h("div", icon("shield"), mod.username ? `@${mod.username}` : "без ника", mod.admin ? " · модератор" : ""),
@@ -110,10 +112,31 @@ export function profileScreen({ id } = {}) {
           "div.mod-actions",
           until
             ? h("button.btn", { onclick: () => ban(false) }, "Снять бан")
-            : h("button.btn.danger-btn", { onclick: () => banSheet(user, (days, r) => ban(true, days, r)) }, "Забанить")
+            : h("button.btn.danger-btn", { onclick: () => banSheet(user, (days, r) => ban(true, days, r)) }, "Забанить"),
+          h("button.btn.verify-btn" + (verified ? ".on" : ""), { onclick: () => verify(!verified) }, verified ? "Снять галочку" : "Выдать галочку"),
+          h("button.btn", { onclick: () => historySheet(`u:${user.id}`) }, "История")
         )
       );
+      status.until = until;
+      status.reason = reason;
     };
+    async function verify(on) {
+      try {
+        const res = await api.post(`/api/admin/users/${user.id}/verify`, { on });
+        verified = res.verified;
+        user.verified = verified;
+        haptic.success();
+        toast(verified ? "Галочка выдана" : "Галочка снята");
+        // Галочка у имени появляется и пропадает сразу, с анимацией.
+        const name = content.querySelector(".profile-name");
+        name.querySelector(".tick")?.remove();
+        const t = tick(user);
+        if (t) name.querySelector(".name-text").after(t);
+        paint(status.until, status.reason);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    }
     async function ban(on, days, reason) {
       try {
         const res = await api.post(`/api/admin/users/${user.id}/ban`, { on, days, reason });
