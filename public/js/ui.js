@@ -373,3 +373,37 @@ export function logo(size = 32) {
     '<rect width="64" height="64" rx="18" fill="url(#lg)"/><path class="logo-stroke" d="M17 48V26.5C17 21.3 21.3 17 26.5 17h8C39.7 17 44 21.3 44 26.5V35c0 6.5 4 10.2 10 11" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   return el;
 }
+
+/**
+ * «Таблетка» выбранной рубрики: едет и тянется к новой кнопке. Кнопки
+ * должны жить постоянно — переключается только класс .on.
+ */
+export function syncPill(container) {
+  container.classList.add("has-pill");
+  let pill = container.querySelector(":scope > .chip-pill");
+  if (!pill) {
+    pill = h("span.chip-pill");
+    container.prepend(pill);
+  }
+  const on = container.querySelector(":scope > .chip.on");
+  if (!on) {
+    pill.style.opacity = "0";
+    return;
+  }
+  const place = () => {
+    pill.style.opacity = "1";
+    pill.style.width = `${on.offsetWidth}px`;
+    pill.style.height = `${on.offsetHeight}px`;
+    pill.style.transform = `translate(${on.offsetLeft}px, ${on.offsetTop}px)`;
+  };
+  if (!pill.dataset.ready) {
+    pill.style.transition = "none";
+    requestAnimationFrame(() => {
+      place();
+      requestAnimationFrame(() => {
+        pill.style.transition = "";
+        pill.dataset.ready = "1";
+      });
+    });
+  } else place();
+}

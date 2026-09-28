@@ -2,9 +2,9 @@ import { api, store } from "./api.js";
 import { myFacultyShort, postCard } from "./card.js";
 import { FACULTY, RUBRICS } from "./data.js";
 import { go } from "./router.js";
-import { slideSwap, swipeX } from "./gestures.js";
+import { reducedMotion, slideSwap, swipeX } from "./gestures.js";
 import { haptic } from "./tg.js";
-import { emptyState, h, icon, logo, spinner, syncThumb } from "./ui.js";
+import { emptyState, h, icon, logo, spinner, syncPill, syncThumb } from "./ui.js";
 
 const PREFS_KEY = "feedPrefs";
 
@@ -40,8 +40,8 @@ const EMPTY = {
 export function feedScreen({ fixedScope = null } = {}) {
   const prefs = fixedScope ? { scope: fixedScope, rubric: "", sort: "new" } : { scope: "fac", rubric: "", sort: "new", ...loadPrefs() };
 
-  const el = h("div.feed");
-  const list = h("div.list");
+  const el = h("div.feed", { dataset: { swipe: "rubrics" } });
+  const list = h("div.list", { dataset: { swipe: "rubrics" } });
   const sentinel = h("div.sentinel");
   const ptr = h("div.ptr", icon("refresh"));
   let next = null;
@@ -62,8 +62,8 @@ export function feedScreen({ fixedScope = null } = {}) {
                 if (prefs.scope === s) return;
                 haptic.select();
                 prefs.scope = s;
-                changed();
-                slideSwap(list, s === "msu" ? 1 : -1);
+                paintControls();
+                leaveThen(s === "msu" ? 1 : -1, false, changed);
               },
             },
             s === "fac" ? myFacultyShort() : "Весь МГУ"
@@ -123,33 +123,59 @@ export function feedScreen({ fixedScope = null } = {}) {
     if (scopeBtns.fac) scopeBtns.fac.textContent = myFacultyShort();
     if (segmented) syncThumb(segmented);
     for (const [r, b] of Object.entries(chipBtns)) b.classList.toggle("on", prefs.rubric === r);
+    syncPill(chips);
     renderSort();
   }
 
   const RUBRIC_ORDER = ["", ...RUBRICS.map((r) => r.id)];
 
-  /** dir: 1 — пришли свайпом влево, -1 — вправо, 0 — касанием. */
-  function selectRubric(id, dir) {
+  let enterDir = 0;
+
+  /**
+   * dir: 1 — дальше (свайп влево), -1 — назад. Старая лента уезжает и
+   * гаснет, таблетка переезжает к новой рубрике, новая лента въезжает с
+   * той стороны, куда листали.
+   */
+  function selectRubric(id, dir, { fromSwipe = false } = {}) {
     if (prefs.rubric === id) return;
     haptic.select();
     const from = RUBRIC_ORDER.indexOf(prefs.rubric);
+    dir = dir || (RUBRIC_ORDER.indexOf(id) > from ? 1 : -1);
     prefs.rubric = id;
     // У событий свой порядок: ближайшие сверху.
     prefs.sort = id === "event" ? "soon" : prefs.sort === "soon" ? "new" : prefs.sort;
-    changed();
-    slideSwap(list, dir || (RUBRIC_ORDER.indexOf(id) > from ? 1 : -1));
+    paintControls();
     chipBtns[id].scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    leaveThen(dir, fromSwipe, changed);
+  }
+
+  function leaveThen(dir, alreadyMoving, next) {
+    enterDir = dir;
+    if (reducedMotion() || !list.firstChild) return next();
+    list.style.transition = "transform .16s ease-in, opacity .16s ease-in";
+    list.style.transform = `translateX(${-dir * (alreadyMoving ? 120 : 48)}px)`;
+    list.style.opacity = "0";
+    setTimeout(() => {
+      list.style.transition = "none";
+      list.style.transform = "";
+      list.style.opacity = "";
+      next();
+    }, 160);
   }
 
   // Свайп по ленте — соседняя рубрика, как листание дней в расписании.
-  swipeX(list, {
-    canStart: (e) => !e.target.closest(".poll, .media, .sheet"),
-    onSwipe: (dir, target) => {
+  // Ловим по всему экрану ленты, а не только по постам: в короткой рубрике
+  // палец часто ложится на пустое место под ними.
+  swipeX(el, {
+    move: () => list,
+    canStart: (x, target) => !target.closest(".poll, .media, .topbar, .chips, .sortbar"),
+    onSwipe: (dir) => {
       const i = RUBRIC_ORDER.indexOf(prefs.rubric) + dir;
-      if (i < 0 || i >= RUBRIC_ORDER.length) return false;
-      target.style.transition = "none";
-      target.style.transform = "";
-      selectRubric(RUBRIC_ORDER[i], dir);
+      if (i < 0 || i >= RUBRIC_ORDER.length) {
+        haptic.warning();
+        return false;
+      }
+      selectRubric(RUBRIC_ORDER[i], dir, { fromSwipe: true });
     },
   });
 
@@ -180,6 +206,10 @@ export function feedScreen({ fixedScope = null } = {}) {
       const data = await api.get(query(reset ? null : next));
       if (gen !== generation) return; // пока грузилось, переключили рубрику
       if (reset) list.replaceChildren();
+      if (reset && enterDir) {
+        slideSwap(list, enterDir);
+        enterDir = 0;
+      }
       data.posts.forEach((post, i) => list.append(postCard(post, { index: i })));
       next = data.next;
       if (reset && !data.posts.length) list.append(empty());
@@ -245,6 +275,7 @@ export function feedScreen({ fixedScope = null } = {}) {
     onShow() {
       if (scopeBtns.fac) scopeBtns.fac.textContent = myFacultyShort();
       if (segmented) syncThumb(segmented);
+      syncPill(chips);
     },
     onReselect() {
       el.scrollTo({ top: 0, behavior: "smooth" });

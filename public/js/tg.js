@@ -95,11 +95,13 @@ export function vibrate(kind = "light") {
   } catch {}
 }
 
+// Отклики заметные: на телефоне «light» и selectionChanged почти не
+// чувствуются, поэтому нажатие — medium, выбор — rigid (чёткий щелчок).
 export const haptic = {
-  tap: () => vibrate("light"),
-  press: () => vibrate("medium"),
+  tap: () => vibrate("medium"),
+  press: () => vibrate("heavy"),
   heavy: () => vibrate("heavy"),
-  select: () => vibrate("select"),
+  select: () => vibrate("rigid"),
   success: () => vibrate("success"),
   error: () => vibrate("error"),
   warning: () => vibrate("warning"),

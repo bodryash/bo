@@ -4,7 +4,7 @@ import { LIMITS, RUBRIC, RUBRICS } from "./data.js";
 import { prepareImage } from "./image.js";
 import { back, go } from "./router.js";
 import { haptic } from "./tg.js";
-import { autoGrow, h, icon, syncThumb, toast, toggle } from "./ui.js";
+import { autoGrow, h, icon, syncPill, syncThumb, toast, toggle } from "./ui.js";
 
 const DRAFT_KEY = "draft";
 
@@ -55,24 +55,27 @@ export function composeScreen() {
 
   // ——— рубрика ———
   const rubricRow = h("div.chips.wrap");
+  const rubricBtns = RUBRICS.map((r) =>
+    h(
+      "button.chip",
+      {
+        dataset: { id: r.id },
+        onclick: () => {
+          if (state.rubric === r.id) return;
+          state.rubric = r.id;
+          haptic.select();
+          paintRubrics();
+          paintExtras();
+          saveDraft();
+        },
+      },
+      `${r.emoji} ${r.name}`
+    )
+  );
+  rubricRow.append(...rubricBtns);
   function paintRubrics() {
-    rubricRow.replaceChildren(
-      ...RUBRICS.map((r) =>
-        h(
-          "button.chip" + (state.rubric === r.id ? ".on" : ""),
-          {
-            onclick: () => {
-              state.rubric = r.id;
-              haptic.select();
-              paintRubrics();
-              paintExtras();
-              saveDraft();
-            },
-          },
-          `${r.emoji} ${r.name}`
-        )
-      )
-    );
+    for (const b of rubricBtns) b.classList.toggle("on", b.dataset.id === state.rubric);
+    syncPill(rubricRow);
     textarea.placeholder = PLACEHOLDERS[state.rubric];
   }
 
