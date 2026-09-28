@@ -8,7 +8,8 @@
     "db:local": "wrangler d1 execute potok --local --file schema.sql",
     "db:remote": "wrangler d1 execute potok --remote --file schema.sql",
     "smoke": "node tests/smoke.mjs",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "mock": "node tools/mock-telegram.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.143.0"

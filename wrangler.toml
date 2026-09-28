@@ -22,6 +22,9 @@ BOT_USERNAME = ""
 APP_NAME = ""
 # Адрес приложения для кнопок в сообщениях бота. Пусто — адрес воркера.
 APP_URL = ""
+# Канал-склад для фото вручную (id вида -100…). Обычно не нужен: бот
+# запоминает канал сам, когда модератор добавляет его туда администратором.
+MEDIA_CHAT_ID = ""
 
 # Секреты не лежат в файлах, задаются один раз:
 #   npx wrangler secret put BOT_TOKEN
@@ -33,7 +36,10 @@ database_name = "potok"
 # Заменить на id из вывода `npx wrangler d1 create potok`.
 database_id = "00000000-0000-0000-0000-000000000000"
 
-# Фото. Бакет создаётся `npx wrangler r2 bucket create potok-media`.
-[[r2_buckets]]
-binding = "MEDIA"
-bucket_name = "potok-media"
+# Фото по умолчанию хранятся в Telegram: создайте закрытый канал и добавьте
+# туда бота администратором — бот сам запомнит канал и напишет вам.
+# Если есть зарубежная карта и хочется хранить фото у Cloudflare —
+# раскомментируйте R2 (бакет: `npx wrangler r2 bucket create potok-media`).
+# [[r2_buckets]]
+# binding = "MEDIA"
+# bucket_name = "potok-media"

@@ -1,7 +1,8 @@
 /**
  * Сквозная проверка API на локальном воркере. Запуск:
- *   npm run db:local && npm run dev      (в одном окне)
- *   npm run smoke                         (в другом)
+ *   npm run mock                          (имитация Telegram, в одном окне)
+ *   npm run db:local && npm run dev       (во втором)
+ *   npm run smoke                         (в третьем)
  * Каждый прогон создаёт новых людей, поэтому базу между прогонами чистить
  * не нужно.
  */
@@ -10,7 +11,34 @@ import assert from "node:assert/strict";
 import { devToken, signInitData } from "../tools/sign.mjs";
 
 const BASE = process.env.BASE || "http://127.0.0.1:8787";
+const MOCK = process.env.MOCK || "http://127.0.0.1:8790";
 const TOKEN = devToken();
+const CHANNEL = -1005550001;
+
+/** Обновление от Telegram на вебхук бота — как будто прислал сам Telegram. */
+const botUpdate = (update) =>
+  fetch(BASE + "/tg", {
+    method: "POST",
+    headers: { "x-telegram-bot-api-secret-token": "devsecret", "content-type": "application/json" },
+    body: JSON.stringify({ update_id: Date.now(), ...update }),
+  });
+
+/** Что воркер отправил в Telegram (записывает tools/mock-telegram.mjs). */
+async function telegramCalls() {
+  // Уведомления уходят после ответа (waitUntil) — даём им долететь.
+  await new Promise((r) => setTimeout(r, 400));
+  return (await fetch(MOCK + "/__calls")).json();
+}
+
+const channelUpdate = (fromId, status) => ({
+  my_chat_member: {
+    chat: { id: CHANNEL, type: "channel", title: "Поток — фото" },
+    from: { id: fromId, first_name: "Кто-то" },
+    date: 0,
+    old_chat_member: { status: "left", user: { id: 1 } },
+    new_chat_member: { status, user: { id: 1 } },
+  },
+});
 const run = Date.now() % 1_000_000;
 
 function person(n, name, extra = {}) {
@@ -210,6 +238,39 @@ await step("уведомления", async () => {
   assert.equal(anonComment.actor, null, "анонимный комментатор не раскрывается в уведомлении");
 });
 
+await step("ответ на пост приходит в бота, если человек нажал /start", async () => {
+  await fetch(MOCK + "/__reset");
+  await botUpdate({ message: { message_id: 1, chat: { id: anya.tgId, type: "private" }, from: { id: anya.tgId, first_name: "Аня" }, text: "/start" } });
+  const quiet = await vera.post(`/api/posts/${talkId}/comments`, { text: "Я тоже приду" });
+  assert.equal(quiet.status, 200);
+  const calls = await telegramCalls();
+  const push = calls.find((c) => c.method === "sendMessage" && Number(c.chat_id) === anya.tgId && /прокомментировал/.test(c.text));
+  assert.ok(push, "Аня получила сообщение о комментарии");
+  assert.match(push.text, /Я тоже приду/);
+  assert.match(push.reply_markup.inline_keyboard[0][0].web_app.url, new RegExp(`#/p/${talkId}/c${quiet.comment.id}$`));
+  assert.ok(!calls.some((c) => Number(c.chat_id) === boris.tgId && c.method === "sendMessage" && /прокомментировал/.test(c.text)), "кто не нажимал /start — тому бот не пишет");
+});
+
+await step("фото без канала-склада — понятная ошибка", async () => {
+  await botUpdate(channelUpdate(1001, "kicked")); // на случай повторного прогона
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0xff, 0xd9]);
+  const res = await anya.post("/api/upload?w=10&h=10", jpeg, { "content-type": "image/jpeg" });
+  assert.equal(res.status, 503);
+  assert.equal(res.code, "media");
+});
+
+await step("канал-склад: подключает только модератор", async () => {
+  await fetch(MOCK + "/__reset");
+  await botUpdate(channelUpdate(42, "administrator"));
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0xff, 0xd9]);
+  const still = await anya.post("/api/upload?w=10&h=10", jpeg, { "content-type": "image/jpeg" });
+  assert.equal(still.status, 503, "канал, куда бота добавил не модератор, не считается");
+
+  await botUpdate(channelUpdate(1001, "administrator"));
+  const calls = await telegramCalls();
+  assert.ok(calls.some((c) => c.method === "sendMessage" && Number(c.chat_id) === 1001 && /Готово/.test(c.text)), "модератору пришло подтверждение");
+});
+
 await step("фото: загрузка, проверка содержимого, прикрепление", async () => {
   const fake = new TextEncoder().encode("<script>alert(1)</script>");
   const bad = await anya.post("/api/upload?w=10&h=10", fake, { "content-type": "image/jpeg" });
@@ -224,6 +285,12 @@ await step("фото: загрузка, проверка содержимого,
   const img = await fetch(`${BASE}/img/${up.key}`);
   assert.equal(img.status, 200);
   assert.equal(img.headers.get("content-type"), "image/jpeg");
+  assert.deepEqual(new Uint8Array(await img.arrayBuffer()), jpeg, "из Telegram вернулся тот же файл");
+  const calls = await telegramCalls();
+  const sent = calls.find((c) => c.method === "sendDocument" && c.name === up.key);
+  assert.equal(Number(sent?.chat_id), CHANNEL, "файл ушёл в канал-склад");
+  const missing = await fetch(`${BASE}/img/00000000-0000-0000-0000-000000000000.jpg`);
+  assert.equal(missing.status, 404);
   const again = await anya.post("/api/posts", { rubric: "talk", text: "то же фото", media: [up.key] });
   assert.equal(again.status, 400, "одно фото — в одном посте");
 });
@@ -243,6 +310,13 @@ await step("жалобы: три — и пост скрыт", async () => {
   assert.equal(direct.status, 404);
   const own = await boris.get(`/api/posts/${confessId}`);
   assert.equal(own.post.hidden, 1, "автор видит, что пост скрыт");
+});
+
+await step("бот: /media показывает, где фото", async () => {
+  await fetch(MOCK + "/__reset");
+  await botUpdate({ message: { message_id: 2, chat: { id: 1001, type: "private" }, from: { id: 1001, first_name: "M" }, text: "/media" } });
+  const calls = await telegramCalls();
+  assert.ok(calls.some((c) => c.method === "sendMessage" && String(c.text).includes(String(CHANNEL))));
 });
 
 await step("бот: секрет вебхука и возврат модератором", async () => {
@@ -276,9 +350,11 @@ await step("бот: секрет вебхука и возврат модерат
 await step("удаление комментария правит счётчик", async () => {
   const foreign = await vera.post(`/api/comments/${commentId}/delete`);
   assert.equal(foreign.status, 403);
+  const before = (await vera.get(`/api/posts/${talkId}`)).post.comments;
   await boris.post(`/api/comments/${commentId}/delete`);
   const view = await vera.get(`/api/posts/${talkId}`);
-  assert.equal(view.post.comments, 1);
+  assert.equal(view.post.comments, before - 1);
+  assert.ok(!view.comments.some((c) => c.id === commentId));
 });
 
 await step("поиск", async () => {

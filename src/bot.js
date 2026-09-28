@@ -13,6 +13,7 @@ import {
   restoreTarget,
   unbanUser,
 } from "./moderation.js";
+import { mediaChat, onChannelMember } from "./media.js";
 import { appUrl } from "./notify.js";
 import { displayName, userSearchKey } from "./users.js";
 import { DAY, callTelegram, escapeHtml, isAdminTg, now, safeEqual } from "./util.js";
@@ -56,6 +57,7 @@ async function rememberChat(env, from, canDm) {
 }
 
 async function onChatMember(env, update) {
+  if (["channel", "supergroup", "group"].includes(update.chat?.type)) return onChannelMember(env, update);
   if (update.chat?.type !== "private") return;
   const status = update.new_chat_member?.status;
   await rememberChat(env, update.from, status === "member");
@@ -122,6 +124,8 @@ async function onMessage(env, message) {
     }
     case "/hidden":
       return hiddenList(env, message);
+    case "/media":
+      return mediaStatus(env, message);
     default:
       return reply(env, message, HELP, { reply_markup: openButton(env) });
   }
@@ -136,6 +140,7 @@ const HELP = `<b>Модерация</b>
 /ban №5 7 спам — бан на 7 дней с причиной (без числа — навсегда)
 /ban @ivanov · /ban p12 · /ban c34 — по нику или автору поста
 /unban №5 — снять бан
+/media — где хранятся фото
 
 <i>№ — номер человека в Потоке, он есть в карточках.</i>`;
 
@@ -190,6 +195,22 @@ async function hiddenList(env, message) {
     (r) => `<code>/who ${r.type}${r.id}</code> · ${r.reports} жал. · ${escapeHtml(String(r.text).slice(0, 60))}`
   );
   return reply(env, message, "<b>Ждут решения</b>\n\n" + lines.join("\n"));
+}
+
+async function mediaStatus(env, message) {
+  if (env.MEDIA) return reply(env, message, "📷 Фото хранятся в R2.");
+  const chat = await mediaChat(env);
+  if (!chat) {
+    return reply(
+      env,
+      message,
+      "📷 Канал для фото не подключён — фото не загружаются.\n\n" +
+        "Создайте закрытый канал и добавьте туда бота администратором (с правом публиковать). " +
+        "Бот сам поймёт, что это склад, и напишет сюда."
+    );
+  }
+  const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM media WHERE tg_file_id IS NOT NULL").first("n");
+  return reply(env, message, `📷 Фото хранятся в канале <code>${escapeHtml(chat)}</code>. Всего файлов: ${count}.`);
 }
 
 async function stats(env) {

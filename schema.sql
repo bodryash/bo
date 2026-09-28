@@ -57,6 +57,7 @@ CREATE INDEX IF NOT EXISTS posts_events ON posts (rubric, event_at);
 
 -- Фото грузятся до поста, поэтому post_id сначала пустой. Незакреплённые
 -- сутки спустя удаляет задача по расписанию — вместе с файлом в R2.
+-- tg_* — где файл лежит в Telegram (канал-склад); пусто, если фото в R2.
 CREATE TABLE IF NOT EXISTS media (
   key TEXT PRIMARY KEY,
   owner_id INTEGER NOT NULL,
@@ -64,10 +65,22 @@ CREATE TABLE IF NOT EXISTS media (
   pos INTEGER NOT NULL DEFAULT 0,
   w INTEGER NOT NULL,
   h INTEGER NOT NULL,
+  tg_file_id TEXT,
+  tg_chat_id INTEGER,
+  tg_msg_id INTEGER,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS media_post ON media (post_id, pos);
 CREATE INDEX IF NOT EXISTS media_orphans ON media (created_at) WHERE post_id IS NULL;
+-- Суточный лимит загрузок считается по автору: без индекса каждая
+-- загрузка перебирала бы все фото подряд.
+CREATE INDEX IF NOT EXISTS media_owner ON media (owner_id, created_at);
+
+-- Настройки, которые бот узнаёт сам: например, канал-склад для фото.
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 
 CREATE TABLE IF NOT EXISTS likes (
   post_id INTEGER NOT NULL,

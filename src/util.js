@@ -88,8 +88,17 @@ export async function verifyInitData(initData, token) {
   }
 }
 
+/**
+ * Адрес Bot API. TELEGRAM_API подменяется только в разработке — на
+ * имитацию Telegram из tools/mock-telegram.mjs. filePath — скачать файл.
+ */
+export function telegramUrl(env, method, filePath) {
+  const base = String(env.TELEGRAM_API || "https://api.telegram.org").replace(/\/$/, "");
+  return filePath ? `${base}/file/bot${env.BOT_TOKEN}/${filePath}` : `${base}/bot${env.BOT_TOKEN}/${method}`;
+}
+
 export async function callTelegram(env, method, payload) {
-  const response = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
+  const response = await fetch(telegramUrl(env, method), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
