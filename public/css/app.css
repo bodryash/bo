@@ -2824,3 +2824,259 @@ button.stat:active {
 .subs-empty .people {
   margin-bottom: 12px;
 }
+
+/* ——— битва факультетов ——— */
+
+.battle-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 10px 4px;
+  padding: 10px 12px;
+  width: calc(100% - 20px);
+  border-radius: 16px;
+  background: linear-gradient(100deg, rgba(255, 190, 60, 0.18), rgba(255, 140, 60, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(255, 170, 40, 0.28);
+  text-align: left;
+  animation: appear 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.battle-banner-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 11px;
+  background: #ffb020;
+  color: #fff;
+}
+
+.battle-banner-icon .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.battle-banner-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  color: var(--hint);
+}
+
+.battle-banner-text b {
+  color: var(--text);
+  font-size: 14.5px;
+}
+
+.battle-banner > .icon {
+  width: 18px;
+  height: 18px;
+  color: var(--hint);
+}
+
+.battle-hero {
+  margin: 4px 10px 10px;
+  padding: 16px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #1b1c22, #2a2440);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.battle-week {
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #ffc24a;
+}
+
+.battle-mine {
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.battle-mine span {
+  font-size: 15px;
+  opacity: 0.7;
+}
+
+.battle-contrib,
+.battle-champion {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.battle-contrib span {
+  opacity: 0.6;
+}
+
+.battle-tabs {
+  padding: 0 10px 10px;
+}
+
+.podium {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  align-items: end;
+  gap: 8px;
+  margin: 4px 10px 12px;
+  height: 210px;
+}
+
+.podium-place {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 2px;
+}
+
+.podium-medal {
+  font-size: 28px;
+}
+
+.podium-name {
+  font-weight: 750;
+  font-size: 15px;
+  text-align: center;
+}
+
+.podium-points {
+  color: var(--hint);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+}
+
+.podium-step {
+  width: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 14px 14px 6px 6px;
+  background: var(--card);
+  box-shadow: var(--shadow), inset 0 0 0 1px var(--sep);
+  color: var(--hint);
+  font-size: 22px;
+  font-weight: 800;
+  transform-origin: bottom;
+}
+
+.podium-place.p1 .podium-step { height: 96px; background: linear-gradient(180deg, #ffd35a, #ffb020); color: #7a4b00; }
+.podium-place.p2 .podium-step { height: 70px; background: linear-gradient(180deg, #e6e9ef, #c9ced8); color: #505866; }
+.podium-place.p3 .podium-step { height: 52px; background: linear-gradient(180deg, #f1c49a, #d99a62); color: #6b3b12; }
+
+.podium-place.mine .podium-name::after {
+  content: " · вы";
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.battle-list {
+  margin: 0 10px;
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.battle-list:empty {
+  display: none;
+}
+
+.battle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px;
+}
+
+.battle-row + .battle-row {
+  border-top: 0.5px solid var(--sep);
+}
+
+.battle-row.mine {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.battle-rank {
+  width: 22px;
+  flex: none;
+  text-align: center;
+  color: var(--hint);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.battle-fac {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.battle-meta {
+  color: var(--hint);
+  font-size: 12px;
+}
+
+.battle-bar {
+  height: 5px;
+  margin-top: 3px;
+  border-radius: 3px;
+  background: var(--soft);
+  overflow: hidden;
+}
+
+.battle-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.battle-list.grown .battle-bar i {
+  width: var(--w);
+}
+
+.battle-row.mine .battle-bar i {
+  background: #ffb020;
+}
+
+.battle-points {
+  flex: none;
+  font-weight: 700;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.battle-rules {
+  margin: 14px 10px;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+}
+
+.battle-rules ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.battle-rules b {
+  font-variant-numeric: tabular-nums;
+}

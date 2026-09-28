@@ -1,5 +1,6 @@
 import { api, store, writes } from "./api.js";
 import { peopleList } from "./people.js";
+import { battleBanner } from "./battle.js";
 import { myFacultyShort, postCard } from "./card.js";
 import { FACULTY, RUBRICS } from "./data.js";
 import { go } from "./router.js";
@@ -129,7 +130,16 @@ export function feedScreen({ fixedScope = null } = {}) {
     );
   }
 
-  el.append(ptr, topbar, chips, sortbar, list, sentinel);
+  // Плашка битвы факультетов — на ленте факультета и МГУ, в «Все».
+  const banner = fixedScope ? null : battleBanner();
+  el.append(ptr, topbar, chips, sortbar, ...(banner ? [banner.el] : []), list, sentinel);
+
+  function paintBanner() {
+    if (!banner) return;
+    const show = prefs.scope !== "subs" && !prefs.rubric;
+    if (show) banner.refresh();
+    else banner.el.hidden = true;
+  }
 
   function paintControls() {
     for (const [s, b] of Object.entries(scopeBtns)) b.classList.toggle("on", prefs.scope === s);
@@ -138,6 +148,7 @@ export function feedScreen({ fixedScope = null } = {}) {
     for (const [r, b] of Object.entries(chipBtns)) b.classList.toggle("on", prefs.rubric === r);
     syncPill(chips);
     renderSort();
+    paintBanner();
   }
 
   const RUBRIC_ORDER = ["", ...RUBRICS.map((r) => r.id)];

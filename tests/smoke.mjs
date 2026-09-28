@@ -465,6 +465,27 @@ await step("модерация в приложении: очередь, реше
   assert.equal((await boris.get(`/api/users/${dimaMe.id}`)).mod, undefined);
 });
 
+await step("битва факультетов: очки, потолок в день, свои лайки не в счёт", async () => {
+  const zhenya = person(6, "Женя");
+  await zhenya.post("/api/me", { faculty: "journ", level: "bach", course: 2 });
+  let b = await zhenya.get("/api/battle");
+  assert.equal(b.me.points, 5, "вступил — 5 очков факультету");
+  const first = await zhenya.post("/api/posts", { rubric: "talk", text: "Журфак, вперёд!" });
+  await zhenya.post(`/api/posts/${first.post.id}/like`, { on: true });
+  b = await zhenya.get("/api/battle");
+  assert.equal(b.me.points, 8, "пост +3, свой лайк не считается");
+  await vera.post(`/api/posts/${first.post.id}/like`, { on: true });
+  b = await zhenya.get("/api/battle");
+  assert.equal(b.me.points, 9, "чужой лайк +1");
+  for (let i = 0; i < 10; i++) await zhenya.post("/api/posts", { rubric: "talk", text: `Пост ${i}` });
+  b = await zhenya.get("/api/battle");
+  assert.equal(b.me.points, 30, "больше 30 в день один человек не приносит");
+  const journ = b.faculties.find((f) => f.id === "journ");
+  assert.ok(journ.points >= 30 && journ.rank >= 1 && journ.members >= 1);
+  assert.ok(b.faculties.every((f, i, a) => i === 0 || a[i - 1].points >= f.points), "по убыванию");
+  assert.ok(b.end - b.start === 7 * 86400);
+});
+
 await step("бан через бота запрещает писать", async () => {
   const me = await gleb.get("/api/me");
   await fetch(BASE + "/tg", {

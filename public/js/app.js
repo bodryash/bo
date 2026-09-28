@@ -5,6 +5,7 @@
 import { refreshMe, store } from "./api.js";
 import { composeScreen } from "./compose.js";
 import { modScreen } from "./mod.js";
+import { battleScreen } from "./battle.js";
 import { peopleScreen } from "./people.js";
 import { composePath } from "./feed.js";
 import { errorState, feedScreen } from "./feed.js";
@@ -65,6 +66,7 @@ route("/new", () => composeScreen());
 route("/new/:rubric", (p) => composeScreen(p));
 route("/new/:rubric/:scope", (p) => composeScreen(p));
 route("/mod", () => modScreen());
+route("/battle", () => battleScreen());
 route("/u/:id/:list", (p) => peopleScreen(p));
 route("/p/:id", (p) => postScreen(p));
 route("/p/:id/:comment", (p) => postScreen(p));

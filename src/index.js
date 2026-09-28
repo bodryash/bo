@@ -16,6 +16,7 @@ import { closePost, createPost, deletePost, feed, getPostView, likePost, postQue
 import { checkWebhook, handleSetup } from "./setup.js";
 import { follow, followList, suggestions } from "./social.js";
 import { act, banById, bans, queue } from "./admin.js";
+import { battle } from "./battle.js";
 import { getMe, getProfile, updateMe, viewer } from "./users.js";
 import { DAY, HttpError, json, now, readJson } from "./util.js";
 
@@ -28,6 +29,7 @@ const ROUTES = [
   ["GET", "/api/users/:id/followers", (c) => followList(c.env, c.user, c.id, "followers")],
   ["GET", "/api/users/:id/following", (c) => followList(c.env, c.user, c.id, "following")],
   ["GET", "/api/people/suggest", (c) => suggestions(c.env, c.user)],
+  ["GET", "/api/battle", (c) => battle(c.env, c.user, c.ctx)],
   ["GET", "/api/admin/queue", (c) => queue(c.env, c.user)],
   ["POST", "/api/admin/act", async (c) => act(c.env, c.user, await readJson(c.request)), { fresh: true }],
   ["GET", "/api/admin/bans", (c) => bans(c.env, c.user)],
