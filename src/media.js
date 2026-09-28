@@ -13,6 +13,7 @@
  */
 
 import { adminIds, callTelegram, DAY, fail, now, telegramUrl } from "./util.js";
+import { checkRate } from "./guard.js";
 
 // Приложение само сжимает фото до 1600 точек по длинной стороне, это
 // 200–600 КБ. Всё крупнее — не наш клиент или испорченный файл.
@@ -58,6 +59,7 @@ export async function upload(env, user, request, url) {
     .bind(user.id, t - DAY)
     .first("n");
   if (today >= UPLOADS_PER_DAY) fail(429, "На сегодня фото достаточно");
+  await checkRate(env, user, "upload");
 
   const key = `${crypto.randomUUID()}.${kind.ext}`;
   let tg = { file_id: null, chat_id: null, message_id: null };

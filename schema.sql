@@ -165,6 +165,17 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 CREATE INDEX IF NOT EXISTS audit_target ON audit (target, id);
 
+-- Битва факультетов: сырые очки человека за день (день — по Москве).
+-- Потолок в день применяется при подсчёте. Ключ (день, человек): таблица
+-- недели читается диапазоном по дню, «Ваш вклад» — семью точками.
+CREATE TABLE IF NOT EXISTS score (
+  d INTEGER NOT NULL,
+  uid INTEGER NOT NULL,
+  fac TEXT NOT NULL,
+  pts INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (d, uid)
+) WITHOUT ROWID;
+
 -- Галочка у имени. Модераторы получают её сами; остальным выдают они.
 CREATE TABLE IF NOT EXISTS verified (
   user_id INTEGER PRIMARY KEY,

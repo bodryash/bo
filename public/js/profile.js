@@ -5,7 +5,7 @@ import { errorState, skeleton } from "./feed.js";
 import { back, go } from "./router.js";
 import { haptic, openLink } from "./tg.js";
 import { actionSheet, autoGrow, avatar, emptyState, h, icon, plural, sheet, spinner, tick, toast, toggle } from "./ui.js";
-import { historySheet } from "./modtools.js";
+import { historySheet, wipeSheet } from "./modtools.js";
 import { followButton } from "./people.js";
 import { insideTelegram, tg } from "./tg.js";
 
@@ -114,7 +114,12 @@ export function profileScreen({ id } = {}) {
             ? h("button.btn", { onclick: () => ban(false) }, "Снять бан")
             : h("button.btn.danger-btn", { onclick: () => banSheet(user, (days, r) => ban(true, days, r)) }, "Забанить"),
           h("button.btn.verify-btn" + (verified ? ".on" : ""), { onclick: () => verify(!verified) }, verified ? "Снять галочку" : "Выдать галочку"),
-          h("button.btn", { onclick: () => historySheet(`u:${user.id}`) }, "История")
+          h("button.btn", { onclick: () => historySheet(`u:${user.id}`) }, "История"),
+          h(
+            "button.btn.danger-btn",
+            { onclick: () => wipeSheet(user, (res) => (paint(res.banned_until, "спам"), loadPosts(true))) },
+            "Бан + стереть всё"
+          )
         )
       );
       status.until = until;

@@ -2,7 +2,10 @@ import { FACULTY, LIMITS, RUBRIC } from "../public/js/data.js";
 import { notify } from "./notify.js";
 import { AUTHOR_COLUMNS, VERIFIED, assertCanWrite, authorFromRow, publicUser } from "./users.js";
 import { DAY, charCount, cleanText, fail, now, searchKey } from "./util.js";
-import { auditStmt } from "./audit.js";
+import { audit, auditStmt } from "./audit.js";
+import { assertRate, rateQuery, sameKey, scan, strike } from "./guard.js";
+import { alertAdmins } from "./moderation.js";
+import { bump, dayOf, rescore } from "./battle.js";
 
 const PAGE = 20;
 
@@ -15,6 +18,7 @@ const ANON_PER_DAY = 5;
 // сколько бы лайков ни набрали.
 const HOT_WINDOW = 7 * DAY;
 const HOT_POOL = 500;
+const SEARCH_DEPTH = 5000;
 
 const POST_SELECT = `SELECT p.*, ${AUTHOR_COLUMNS} FROM posts p JOIN users u ON u.id = p.author_id`;
 
@@ -248,6 +252,11 @@ export async function editPost(env, user, id, body) {
   const hasMedia = await env.DB.prepare("SELECT 1 FROM media WHERE post_id = ? LIMIT 1").bind(id).first();
   if (!text && (!hasMedia || row.poll)) fail(400, "Напишите что-нибудь");
   if (charCount(text) > LIMITS.postText) fail(400, `Пост длиннее ${LIMITS.postText} знаков`);
+  const flag = user.admin ? null : scan(text);
+  if (flag) {
+    await strike(env, user, flag, text, "правка поста");
+    fail(400, `Так нельзя: похоже на ${flag.label}`);
+  }
   if (text !== row.text) {
     await env.DB.batch([
       auditStmt(env, { kind: "edit", target: `p:${id}`, actorId: user.id, oldText: row.text }),
@@ -262,7 +271,7 @@ export async function editPost(env, user, id, body) {
   return { post: await getPostView(env, user, id) };
 }
 
-export async function createPost(env, user, body) {
+export async function createPost(env, user, body, ctx) {
   assertCanWrite(user);
 
   const rubric = RUBRIC[body.rubric];
@@ -304,13 +313,26 @@ export async function createPost(env, user, body) {
   }
 
   const t = now();
-  const recent = await env.DB.prepare(
-    "SELECT COUNT(*) AS n, COALESCE(SUM(anonymous), 0) AS anon FROM posts WHERE author_id = ? AND created_at > ?"
-  )
-    .bind(user.id, t - DAY)
-    .first();
-  if (recent.n >= POSTS_PER_DAY) fail(429, "На сегодня постов достаточно — продолжим завтра");
-  if (anonymous && recent.anon >= ANON_PER_DAY) fail(429, "Анонимных постов на сегодня достаточно");
+  // Лимиты за сутки и за последние минуты, и свои посты за сутки — чтобы
+  // не опубликовать один и тот же текст дважды. Одним пакетом.
+  const [day, burst, mine] = await env.DB.batch([
+    env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(anonymous), 0) AS anon FROM posts WHERE author_id = ? AND created_at > ?").bind(
+      user.id,
+      t - DAY
+    ),
+    rateQuery(env, "post", user.id),
+    env.DB.prepare("SELECT text FROM posts WHERE author_id = ? AND created_at > ? AND hidden != 2").bind(user.id, t - DAY),
+  ]);
+  const recent = day.results[0];
+  if (!user.admin && recent.n >= POSTS_PER_DAY) fail(429, "На сегодня постов достаточно — продолжим завтра");
+  if (!user.admin && anonymous && recent.anon >= ANON_PER_DAY) fail(429, "Анонимных постов на сегодня достаточно");
+  assertRate(env, user, "post", burst.results);
+  const key = sameKey(text);
+  if (key.length > 3 && mine.results.some((r) => sameKey(r.text) === key)) fail(409, "Такой пост у вас уже есть — повторять не нужно");
+
+  // Подозрительное публикуется, но сразу уходит на проверку: видят только
+  // автор и модераторы. Третий такой случай за сутки — автобан.
+  const flag = user.admin ? null : scan([text, place, ...(poll ? JSON.parse(poll) : [])].filter(Boolean).join("\n"));
 
   if (mediaKeys.length) {
     const { results } = await env.DB.prepare(
@@ -321,12 +343,23 @@ export async function createPost(env, user, body) {
     if (results.length !== new Set(mediaKeys).size) fail(400, "Фото не загрузились — добавьте их ещё раз");
   }
 
-  const post = await env.DB.prepare(
-    `INSERT INTO posts (author_id, anonymous, scope, rubric, text, price, event_at, place, poll, search, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
-  )
-    .bind(user.id, anonymous, scope, rubric.id, text, price, eventAt, place, poll, searchKey([text, place].filter(Boolean).join(" ")), t)
-    .first();
+  const [inserted] = await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO posts (author_id, anonymous, scope, rubric, text, price, event_at, place, poll, search, hidden, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+    ).bind(user.id, anonymous, scope, rubric.id, text, price, eventAt, place, poll, searchKey([text, place].filter(Boolean).join(" ")), flag ? 1 : 0, t),
+    // Очки факультету — в той же пачке. Пост на проверке очков не приносит.
+    ...(flag ? [] : [bump(env, user.id, user.faculty, t, 3)]),
+  ]);
+  const post = inserted.results[0];
+
+  if (flag) {
+    await Promise.all([
+      audit(env, { kind: "hide", target: `p:${post.id}`, note: `фильтр: ${flag.label}` }),
+      strike(env, user, flag, text, "пост"),
+    ]);
+    ctx.waitUntil(alertAdmins(env, { type: "p", id: post.id }, `🤖 На проверке — ${flag.label}`));
+  }
 
   if (mediaKeys.length) {
     await env.DB.batch(
@@ -341,7 +374,7 @@ export async function createPost(env, user, body) {
     );
   }
 
-  return { post: await getPostView(env, user, post.id) };
+  return { post: await getPostView(env, user, post.id), review: flag?.label || null };
 }
 
 export async function deletePost(env, user, id) {
@@ -351,6 +384,7 @@ export async function deletePost(env, user, id) {
     env.DB.prepare("UPDATE posts SET hidden = 2 WHERE id = ?").bind(id),
     auditStmt(env, { kind: "delete", target: `p:${id}`, actorId: user.id, note: row.author_id === user.id ? "автором" : "модератором" }),
   ]);
+  await rescore(env, row.author_id);
   return { ok: true };
 }
 
@@ -370,13 +404,31 @@ export async function closePost(env, user, id, body) {
  */
 export async function likePost(env, user, id, body, ctx) {
   const on = !!body.on;
-  const [res, , info] = await env.DB.batch([
-    on
-      ? env.DB.prepare(
-          `INSERT OR IGNORE INTO likes (post_id, user_id, created_at)
-           SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM posts WHERE id = ? AND hidden = 0)`
-        ).bind(id, user.id, now(), id)
-      : env.DB.prepare("DELETE FROM likes WHERE post_id = ? AND user_id = ?").bind(id, user.id),
+  const t = now();
+  // Очко автору — только за чужой лайк и только если лайк правда добавился
+  // (changes() — число строк, изменённых предыдущим оператором пакета).
+  // Снятый лайк вычитается из того дня, когда его поставили.
+  const score = on
+    ? env.DB.prepare(
+        `INSERT INTO score (d, uid, fac, pts)
+         SELECT ?, p.author_id, u.faculty, 1 FROM posts p JOIN users u ON u.id = p.author_id
+         WHERE changes() = 1 AND p.id = ? AND p.hidden = 0 AND p.author_id != ? AND u.faculty IS NOT NULL
+         ON CONFLICT(d, uid) DO UPDATE SET pts = pts + 1`
+      ).bind(dayOf(t), id, user.id)
+    : env.DB.prepare(
+        `UPDATE score SET pts = pts - 1
+         WHERE d = (SELECT (created_at + 10800) / 86400 FROM likes WHERE post_id = ? AND user_id = ?) -- день по Москве
+           AND uid = (SELECT author_id FROM posts WHERE id = ? AND hidden = 0 AND author_id != ?)`
+      ).bind(id, user.id, id, user.id);
+  const write = on
+    ? env.DB.prepare(
+        `INSERT OR IGNORE INTO likes (post_id, user_id, created_at)
+         SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM posts WHERE id = ? AND hidden = 0)`
+      ).bind(id, user.id, t, id)
+    : env.DB.prepare("DELETE FROM likes WHERE post_id = ? AND user_id = ?").bind(id, user.id);
+  const [res, , , info] = await env.DB.batch([
+    on ? write : score,
+    on ? score : write,
     env.DB.prepare("UPDATE posts SET likes = (SELECT COUNT(*) FROM likes WHERE post_id = ?) WHERE id = ?").bind(id, id),
     env.DB.prepare("SELECT likes, author_id, hidden FROM posts WHERE id = ?").bind(id),
   ]);
@@ -442,9 +494,12 @@ export async function search(env, viewerUser, q) {
     env.DB.prepare(
       `SELECT u.*, ${VERIFIED} FROM users u WHERE faculty IS NOT NULL AND search LIKE ? ESCAPE '\\' ORDER BY seen_at DESC LIMIT 20`
     ).bind(like),
-    env.DB.prepare(`${POST_SELECT} WHERE p.hidden = 0 AND p.search LIKE ? ESCAPE '\\' ORDER BY p.id DESC LIMIT 30`).bind(
-      like
-    ),
+    // Посты — среди последних пяти тысяч: LIKE читает строки подряд, и без
+    // границы редкое слово заставляло бы перебирать всю историю.
+    env.DB.prepare(
+      `${POST_SELECT} WHERE p.id > (SELECT MAX(id) FROM posts) - ${SEARCH_DEPTH} AND p.hidden = 0 AND p.search LIKE ? ESCAPE '\\'
+       ORDER BY p.id DESC LIMIT 30`
+    ).bind(like),
   ]);
 
   return {

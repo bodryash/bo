@@ -48,7 +48,7 @@ export function postCard(post, { full = false, showScope = false, onRemove, onCh
   card.append(header(post, { showScope, card, redraw, removed }));
   if (post.mod_author) card.append(modAuthor(post.mod_author));
   if (post.removal) card.append(removalNotice(post));
-  else if (post.hidden === 1) card.append(h("div.notice.warn", "Пост скрыт жалобами и ждёт решения модератора. Остальным он не виден."));
+  else if (post.hidden === 1) card.append(h("div.notice.warn", icon("shield"), h("span", "Пост на проверке у модератора. Пока его видите только вы.")));
   if (post.rubric === "event" && post.event_at) card.append(eventBlock(post));
   if (post.rubric === "market" && post.price !== null) card.append(h("div.price", formatPrice(post.price)));
   if (post.closed) card.append(h("div.closed-badge", icon("check"), CLOSED_LABEL[post.rubric] || "Закрыто"));

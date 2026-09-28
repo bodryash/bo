@@ -1,6 +1,7 @@
 import { FACULTY, LEVEL, LIMITS } from "../public/js/data.js";
 import { botUsername, getSetting } from "./setup.js";
 import { cleanText, charCount, fail, isAdminTg, now, searchKey, verifyInitData } from "./util.js";
+import { bump, rescore } from "./battle.js";
 
 // Имя и аватар обновляем не на каждом запросе, а если что-то поменялось или
 // давно не заходил: иначе каждое открытие ленты было бы записью в базу.
@@ -199,10 +200,16 @@ export async function updateMe(env, user, body) {
 
   const keys = Object.keys(set);
   if (keys.length) {
-    await env.DB.prepare(`UPDATE users SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`)
-      .bind(...keys.map((k) => set[k]), user.id)
-      .run();
+    const joined = set.faculty && !user.faculty;
+    const moved = set.faculty && user.faculty && set.faculty !== user.faculty;
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE users SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`).bind(...keys.map((k) => set[k]), user.id),
+      // Новый участник — пять очков своему факультету в день прихода.
+      ...(joined ? [bump(env, user.id, set.faculty, user.created_at, 5)] : []),
+    ]);
     Object.assign(user, set);
+    // Перешёл на другой факультет — его очки за неделю уходят с ним.
+    if (moved) await rescore(env, user.id);
   }
   return { me: selfView(user) };
 }

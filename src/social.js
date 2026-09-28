@@ -5,6 +5,7 @@
 import { notify } from "./notify.js";
 import { VERIFIED, publicUser } from "./users.js";
 import { DAY, fail, now } from "./util.js";
+import { checkRate } from "./guard.js";
 
 export async function follow(env, user, targetId, body, ctx) {
   if (targetId === user.id) fail(400, "На себя подписаться нельзя");
@@ -12,6 +13,7 @@ export async function follow(env, user, targetId, body, ctx) {
   if (!target) fail(404, "Такого человека нет");
 
   const on = !!body.on;
+  if (on) await checkRate(env, user, "follow");
   const t = now();
   const [res, counts] = await env.DB.batch([
     on

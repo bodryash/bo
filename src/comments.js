@@ -4,6 +4,8 @@ import { loadPost, postQuery } from "./posts.js";
 import { AUTHOR_COLUMNS, assertCanWrite, authorFromRow } from "./users.js";
 import { DAY, charCount, cleanText, fail, now } from "./util.js";
 import { auditStmt } from "./audit.js";
+import { assertRate, rateQuery, sameKey, scan, strike } from "./guard.js";
+import { bump, rescore } from "./battle.js";
 
 const COMMENTS_PER_DAY = 150;
 const MAX_COMMENTS = 500;
@@ -64,7 +66,7 @@ export async function addComment(env, user, postId, body, ctx) {
 
   // Всё, что нужно проверить, — одним пакетом: пост, лимит, на что ответ,
   // под каким номером этот человек уже писал анонимно.
-  const [p, count, reply, prevAnon, maxAnon] = await env.DB.batch([
+  const [p, count, reply, prevAnon, maxAnon, burst, lately] = await env.DB.batch([
     postQuery(env, postId),
     env.DB.prepare("SELECT COUNT(*) AS n FROM comments WHERE author_id = ? AND created_at > ?").bind(user.id, t - DAY),
     env.DB.prepare("SELECT id, author_id FROM comments WHERE id = ? AND post_id = ? AND hidden = 0").bind(replyId, postId),
@@ -72,11 +74,26 @@ export async function addComment(env, user, postId, body, ctx) {
       "SELECT anon_no FROM comments WHERE post_id = ? AND author_id = ? AND anonymous = 1 AND anon_no > 0 LIMIT 1"
     ).bind(postId, user.id),
     env.DB.prepare("SELECT COALESCE(MAX(anon_no), 0) + 1 AS n FROM comments WHERE post_id = ?").bind(postId),
+    rateQuery(env, "comment", user.id),
+    // Свои комментарии за 10 минут — ловить копипасту по разным постам.
+    env.DB.prepare("SELECT post_id, text FROM comments WHERE author_id = ? AND created_at > ?").bind(user.id, t - 600),
   ]);
   const post = p.results[0];
   if (!post || post.hidden === 2) fail(404, "Пост удалён или его не было");
   if (post.hidden) fail(403, "Пост скрыт — комментировать нельзя");
-  if (count.results[0].n >= COMMENTS_PER_DAY) fail(429, "На сегодня комментариев достаточно");
+  if (!user.admin && count.results[0].n >= COMMENTS_PER_DAY) fail(429, "На сегодня комментариев достаточно");
+  assertRate(env, user, "comment", burst.results);
+  // Один и тот же текст: в этом посте — второй раз, по разным — третий.
+  const key = sameKey(text);
+  const same = lately.results.filter((r) => sameKey(r.text) === key);
+  if (!user.admin && key.length > 1 && (same.some((r) => r.post_id === postId) || same.length >= 2)) {
+    fail(409, "Вы это уже писали — повторять не нужно");
+  }
+  const flag = user.admin ? null : scan(text);
+  if (flag) {
+    const banned = await strike(env, user, flag, text, "комментарий");
+    fail(400, banned ? "Похоже на спам — запись закрыта на сутки" : `Так нельзя: похоже на ${flag.label}`);
+  }
   const replyTo = replyId ? reply.results[0] : null;
   if (replyId && !replyTo) fail(400, "Комментарий, на который вы отвечаете, удалён");
 
@@ -92,6 +109,7 @@ export async function addComment(env, user, postId, body, ctx) {
        VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
     ).bind(postId, user.id, anonymous, anonNo, replyTo?.id ?? null, text, t),
     env.DB.prepare("UPDATE posts SET comments = comments + 1 WHERE id = ?").bind(postId),
+    bump(env, user.id, user.faculty, t, 1),
   ]);
   const row = inserted.results[0];
 
@@ -128,6 +146,11 @@ export async function editComment(env, user, id, body) {
   const text = cleanText(body.text);
   if (!text) fail(400, "Пустой комментарий");
   if (charCount(text) > LIMITS.commentText) fail(400, `Комментарий длиннее ${LIMITS.commentText} знаков`);
+  const flag = user.admin ? null : scan(text);
+  if (flag) {
+    await strike(env, user, flag, text, "правка комментария");
+    fail(400, `Так нельзя: похоже на ${flag.label}`);
+  }
   if (text !== c.text) {
     await env.DB.batch([
       auditStmt(env, { kind: "edit", target: `c:${id}`, actorId: user.id, oldText: c.text }),
@@ -147,4 +170,5 @@ export async function removeComment(env, c, { actorId = null, note = null } = {}
       ? [env.DB.prepare("UPDATE posts SET comments = MAX(comments - 1, 0) WHERE id = ?").bind(c.post_id)]
       : []),
   ]);
+  await rescore(env, c.author_id);
 }

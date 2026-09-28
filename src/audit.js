@@ -15,6 +15,8 @@ const KINDS = {
   unban: "снят бан",
   verify: "галочка",
   unverify: "галочка снята",
+  blocked: "не пропустил фильтр",
+  wipe: "стёрто всё за неделю",
 };
 
 export function auditStmt(env, { kind, target, actorId = null, oldText = null, note = null }) {
@@ -68,8 +70,9 @@ function entry(r) {
 // Фильтры журнала: правки, удаления (и всё про жалобы), люди (баны, галочки).
 const GROUPS = {
   edit: ["edit"],
-  delete: ["delete", "hide", "restore"],
+  delete: ["delete", "hide", "restore", "wipe"],
   people: ["ban", "unban", "verify", "unverify"],
+  spam: ["blocked", "wipe"],
 };
 
 /** Последние события — для экрана «Модерация → Журнал». */

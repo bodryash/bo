@@ -245,6 +245,7 @@ export function composeScreen({ rubric: presetRubric, scope: presetScope } = {})
     try {
       const res = await api.post("/api/posts", body);
       haptic.success();
+      if (res.review) toast("Пост отправлен на проверку модератору", "");
       clearDraft();
       window.dispatchEvent(new CustomEvent("potok:post", { detail: res.post }));
       go(`/p/${res.post.id}`, { replace: true });

@@ -83,7 +83,8 @@ export function appUrl(env, hash = "") {
 export async function listNotifications(env, user) {
   const { results } = await env.DB.prepare(
     `SELECT n.*, p.text AS post_text, p.hidden AS post_hidden, p.likes AS post_likes, c.text AS comment_text,
-            a.id AS a_id, a.first_name AS a_first_name, a.last_name AS a_last_name, a.photo_url AS a_photo_url
+            a.id AS a_id, a.first_name AS a_first_name, a.last_name AS a_last_name, a.photo_url AS a_photo_url,
+            EXISTS (SELECT 1 FROM verified v WHERE v.user_id = n.actor_id) AS a_verified
      FROM notifications n
      LEFT JOIN posts p ON p.id = n.post_id
      LEFT JOIN comments c ON c.id = n.comment_id
@@ -108,7 +109,7 @@ export async function listNotifications(env, user) {
         // Лайк могли снять и поставить снова — счётчик уведомления это
         // посчитал бы дважды, а у поста число честное.
         count: n.kind === "like" ? Math.max(n.post_likes, 1) : n.count,
-        actor: n.anonymous || !n.a_id ? null : { id: n.a_id, name: displayName({ first_name: n.a_first_name, last_name: n.a_last_name }), photo: n.a_photo_url },
+        actor: n.anonymous || !n.a_id ? null : { id: n.a_id, name: displayName({ first_name: n.a_first_name, last_name: n.a_last_name }), photo: n.a_photo_url, verified: !!n.a_verified },
         post_text: clip(n.post_text, 120),
         comment_text: n.comment_text ? clip(n.comment_text, 200) : null,
         created_at: n.created_at,

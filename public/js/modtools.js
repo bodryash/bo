@@ -55,6 +55,13 @@ export function modActions({ target, author, edited, hidden = 0, onRemoved, onRe
           danger: true,
           onClick: () => banSheet(author, (days) => act("ban", days)),
         },
+      author &&
+        !self && {
+          label: "Бан и стереть всё за неделю",
+          icon: "trash",
+          danger: true,
+          onClick: () => wipeSheet(author, onRemoved),
+        },
     ],
     { title: "Модерация" }
   );
@@ -69,6 +76,24 @@ export function modActions({ target, author, edited, hidden = 0, onRemoved, onRe
       toast(err.message, "error");
     }
   }
+}
+
+/**
+ * Против спамера и «бомбера»: бан и все его посты и комментарии за неделю
+ * — одним действием.
+ */
+export function wipeSheet(user, onDone) {
+  banSheet(user, async (days) => {
+    if (!(await confirmDialog(`Забанить ${user.name} и удалить всё, что он(а) написал(а) за неделю?`, { ok: "Стереть всё" }))) return;
+    try {
+      const res = await api.post(`/api/admin/users/${user.id}/ban`, { on: true, days, wipe: true, reason: "спам" });
+      haptic.warning();
+      toast(`Забанен. Удалено постов: ${res.wiped.posts}, комментариев: ${res.wiped.comments}`);
+      onDone?.(res);
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
 }
 
 /** История правок и удаления — только модератору. */

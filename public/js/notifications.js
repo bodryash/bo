@@ -1,7 +1,7 @@
 import { api, store } from "./api.js";
 import { errorState } from "./feed.js";
 import { go } from "./router.js";
-import { ago, avatar, emptyState, h, icon, spinner } from "./ui.js";
+import { ago, avatar, emptyState, h, icon, spinner, tick } from "./ui.js";
 
 const TEXT = {
   comment: "прокомментировал(а) ваш пост",
@@ -53,7 +53,7 @@ export function notificationsScreen() {
       h("div.notif-avatar", avatar(n.actor, 44), h("span.notif-badge.kind-" + n.kind, icon(badge))),
       h(
         "div.notif-body",
-        h("div.notif-title", h("b", who), " ", what),
+        h("div.notif-title", h("b", who), tick(n.actor), " ", what),
         n.comment_text ? h("div.notif-comment", n.comment_text) : null,
         follow ? null : h("div.notif-post", n.post_text || "Пост с фото"),
         h("div.notif-time", ago(n.created_at))

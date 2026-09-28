@@ -477,6 +477,16 @@ await step("битва факультетов: очки, потолок в де�
   await vera.post(`/api/posts/${first.post.id}/like`, { on: true });
   b = await zhenya.get("/api/battle");
   assert.equal(b.me.points, 9, "чужой лайк +1");
+  await vera.post(`/api/posts/${first.post.id}/like`, { on: true });
+  assert.equal((await zhenya.get("/api/battle")).me.points, 9, "повторный лайк не прибавляет");
+  await vera.post(`/api/posts/${first.post.id}/like`, { on: false });
+  assert.equal((await zhenya.get("/api/battle")).me.points, 8, "снятый лайк вычитается");
+  await vera.post(`/api/posts/${first.post.id}/like`, { on: true });
+  const gone = await zhenya.post("/api/posts", { rubric: "talk", text: "Сейчас удалю" });
+  await vera.post(`/api/posts/${gone.post.id}/like`, { on: true });
+  assert.equal((await zhenya.get("/api/battle")).me.points, 13);
+  await zhenya.post(`/api/posts/${gone.post.id}/delete`);
+  assert.equal((await zhenya.get("/api/battle")).me.points, 9, "удалённый пост и его лайки очков не приносят");
   for (let i = 0; i < 10; i++) await zhenya.post("/api/posts", { rubric: "talk", text: `Пост ${i}` });
   b = await zhenya.get("/api/battle");
   assert.equal(b.me.points, 30, "больше 30 в день один человек не приносит");
@@ -546,6 +556,76 @@ await step("галочка: модератор получает сам, выда
   assert.equal(people.events.find((e) => e.target === `u:${veraMe.id}`).target_user.name, "Вера");
   const edits = await admin.get("/api/admin/log?kind=edit");
   assert.ok(edits.events.length && edits.events.every((e) => e.kind === "edit" && e.old_text));
+});
+
+await step("защита: повторы, флуд, фильтр и автобан, 18+, «стереть всё»", async () => {
+  const profile = { faculty: "fgp", level: "bach", course: 1 };
+  const host = await admin.post("/api/posts", { rubric: "talk", text: `Площадка для проверки ${run}` });
+  const at = `/api/posts/${host.post.id}/comments`;
+
+  // Повтор того же текста в том же посте.
+  const flooder = person(7, "Флудер");
+  await flooder.post("/api/me", profile);
+  assert.equal((await flooder.post(at, { text: "Всем привет!" })).status, 200);
+  assert.equal((await flooder.post(at, { text: "всем   привет" })).status, 409, "повтор не проходит");
+
+  // Флуд упирается в лимит частоты, а не в суточный.
+  let limited = null;
+  for (let i = 0; i < 300 && !limited; i++) {
+    const r = await flooder.post(at, { text: `сообщение номер ${i}` });
+    if (r.status === 429) limited = r;
+    else assert.equal(r.status, 200, r.error);
+  }
+  assert.ok(limited, "флуд остановлен");
+  assert.match(limited.error, /подождите/i);
+
+  // Фильтр: пост — на проверку (виден автору и модератору), комментарий — нет,
+  // третий раз за сутки — автобан.
+  const spammer = person(8, "Спамер");
+  await spammer.post("/api/me", profile);
+  const spammerId = (await spammer.get("/api/me")).me.id;
+  const flagged = await spammer.post("/api/posts", { rubric: "talk", text: "Лёгкий заработок от 5000 в день, пиши в лс" });
+  assert.equal(flagged.status, 200, flagged.error);
+  assert.equal(flagged.post.hidden, 1);
+  assert.ok(flagged.review);
+  assert.equal((await anya.get(`/api/posts/${flagged.post.id}`)).status, 404, "остальным не видно");
+  const q = await admin.get("/api/admin/queue");
+  assert.ok(q.items.some((i) => i.target === `p:${flagged.post.id}` && i.reasons.some((r) => r.includes("фильтр"))), "в очереди модератора");
+  const c2 = await spammer.post(at, { text: "з@кл@дки по мск с гарантией" });
+  assert.equal(c2.status, 400);
+  assert.match(c2.error, /наркотики/);
+  const c3 = await spammer.post(at, { text: "Мой 0nlyFans — ссылка в профиле" });
+  assert.equal(c3.status, 400);
+  assert.match(c3.error, /сутки/);
+  const after = await spammer.post(at, { text: "Обычный комментарий" });
+  assert.equal(after.status, 403, "автобан действует");
+  const spamLog = await admin.get("/api/admin/log?kind=spam");
+  const tries = spamLog.events.filter((e) => e.kind === "blocked" && e.target === `u:${spammerId}`);
+  assert.equal(tries.length, 3);
+  assert.ok(tries.some((e) => e.old_text.includes("0nlyFans")), "модератор видит, что пытались написать");
+
+  // Две жалобы «18+» прячут сразу, не дожидаясь третьей.
+  const pic = await vera.post("/api/posts", { rubric: "talk", text: `Картинка ${run}` });
+  await anya.post("/api/report", { target: `p:${pic.post.id}`, reason: "nsfw" });
+  assert.equal((await boris.get(`/api/posts/${pic.post.id}`)).status, 200);
+  await dima.post("/api/report", { target: `p:${pic.post.id}`, reason: "nsfw" });
+  assert.equal((await boris.get(`/api/posts/${pic.post.id}`)).status, 404, "две жалобы на 18+ — скрыто");
+
+  // «Бан и стереть всё за неделю»: посты и комментарии разом, счётчики верные.
+  const bomber = person(9, "Бомбер");
+  await bomber.post("/api/me", profile);
+  const bomberId = (await bomber.get("/api/me")).me.id;
+  const b1 = await bomber.post("/api/posts", { rubric: "talk", text: `Бомба раз ${run}` });
+  await bomber.post("/api/posts", { rubric: "talk", text: `Бомба два ${run}` });
+  const before = (await anya.get(`/api/posts/${host.post.id}`)).post.comments;
+  await bomber.post(at, { text: "бум" });
+  await bomber.post(at, { text: "бум-бум" });
+  assert.equal((await anya.get(`/api/posts/${host.post.id}`)).post.comments, before + 2);
+  const wiped = await admin.post(`/api/admin/users/${bomberId}/ban`, { on: true, days: 1, wipe: true });
+  assert.deepEqual(wiped.wiped, { posts: 2, comments: 2 });
+  assert.equal((await anya.get(`/api/posts/${b1.post.id}`)).status, 404);
+  assert.equal((await anya.get(`/api/posts/${host.post.id}`)).post.comments, before, "счётчик комментариев поправлен");
+  assert.equal((await bomber.post(at, { text: "ещё" })).status, 403);
 });
 
 await step("бан через бота запрещает писать", async () => {

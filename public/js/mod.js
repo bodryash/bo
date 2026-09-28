@@ -54,12 +54,12 @@ export function modScreen() {
       { style: { "--i": Math.min(i, 10) } },
       h(
         "div.mod-item-head",
-        h("button.mod-author", { onclick: () => go(`/u/${item.author.id}`) }, avatar(item.author, 32), h("div", h("b", item.author.name), h("span", studentLine(item.author)))),
+        h("button.mod-author", { onclick: () => go(`/u/${item.author.id}`) }, avatar(item.author, 32), h("div", h("b", item.author.name, tick(item.author)), h("span", studentLine(item.author)))),
         h("span.mod-kind" + (item.hidden ? ".hidden" : ""), item.target.startsWith("p") ? "пост" : "коммент", item.hidden ? " · скрыт" : "")
       ),
       item.anonymous ? h("div.mod-anon", icon("mask"), "писал(а) анонимно") : null,
       h("button.mod-text", { onclick: () => go(`/p/${item.post_id}`) }, item.text),
-      h("div.mod-reasons", `🚩 ${item.reports} · ${item.reasons.join(", ")} · ${ago(item.created_at)}`),
+      h("div.mod-reasons", [item.reports ? `🚩 ${item.reports}` : "", ...item.reasons, ago(item.created_at)].filter(Boolean).join(" · ")),
       h(
         "div.mod-actions",
         h("button.btn", { onclick: () => decide(item, "ok", node) }, "Вернуть"),
@@ -88,7 +88,7 @@ export function modScreen() {
       { style: { "--i": Math.min(i, 10) } },
       h(
         "div.mod-item-head",
-        h("button.mod-author", { onclick: () => go(`/u/${u.id}`) }, avatar(u, 32), h("div", h("b", u.name), h("span", u.username ? `@${u.username}` : studentLine(u))))
+        h("button.mod-author", { onclick: () => go(`/u/${u.id}`) }, avatar(u, 32), h("div", h("b", u.name, tick(u)), h("span", u.username ? `@${u.username}` : studentLine(u))))
       ),
       h("div.mod-reasons", u.forever ? "навсегда" : `до ${new Date(u.banned_until * 1000).toLocaleDateString("ru-RU")}`, u.ban_reason ? ` · ${u.ban_reason}` : ""),
       h(
@@ -122,6 +122,7 @@ export function modScreen() {
     ["", "Всё"],
     ["edit", "Правки"],
     ["delete", "Удаления"],
+    ["spam", "Спам"],
     ["people", "Баны и галочки"],
   ];
 
@@ -172,7 +173,7 @@ export function modScreen() {
     }
   }
 
-  const KIND_ICON = { edit: "edit", delete: "trash", hide: "flag", restore: "check", ban: "lock", unban: "lock", verify: "check", unverify: "close" };
+  const KIND_ICON = { edit: "edit", delete: "trash", hide: "flag", restore: "check", ban: "lock", unban: "lock", verify: "check", unverify: "close", blocked: "shield", wipe: "trash" };
   const TARGET = { p: "пост", c: "комментарий", u: "" };
 
   function logItem(e, i) {
@@ -194,6 +195,7 @@ export function modScreen() {
         ),
         h("div.log-who", e.actor ? h("button.link-btn", { onclick: () => go(`/u/${e.actor.id}`) }, who) : who, e.note ? ` · ${e.note}` : ""),
         e.kind === "edit" && e.old_text ? h("div.log-text.old", h("span.log-label", "было"), e.old_text) : null,
+        e.kind === "blocked" && e.old_text ? h("div.log-text", h("span.log-label", "текст"), e.old_text) : null,
         e.target_text != null ? h("button.log-text", { onclick: open }, e.kind === "edit" ? h("span.log-label", "сейчас") : null, e.target_text) : null,
         t !== "u" ? h("button.link-btn.log-history", { onclick: () => historySheet(e.target) }, "вся история") : null
       )

@@ -81,7 +81,7 @@ export const REPORT_REASONS = [
   { id: "spam", name: "Спам или реклама" },
   { id: "abuse", name: "Оскорбления, травля" },
   { id: "personal", name: "Чужие личные данные" },
-  { id: "nsfw", name: "Неприемлемые материалы" },
+  { id: "nsfw", name: "Порно, 18+" },
   { id: "fraud", name: "Мошенничество" },
   { id: "other", name: "Другое" },
 ];

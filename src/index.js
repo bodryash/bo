@@ -40,7 +40,7 @@ const ROUTES = [
   ["POST", "/api/admin/users/:id/ban", async (c) => banById(c.env, c.user, c.id, await readJson(c.request)), { fresh: true }],
   ["GET", "/api/feed", (c) => feed(c.env, c.user, c.url.searchParams)],
   ["GET", "/api/search", (c) => search(c.env, c.user, c.url.searchParams.get("q"))],
-  ["POST", "/api/posts", async (c) => createPost(c.env, c.user, await readJson(c.request)), { fresh: true }],
+  ["POST", "/api/posts", async (c) => createPost(c.env, c.user, await readJson(c.request), c.ctx), { fresh: true }],
   [
     "GET",
     "/api/posts/:id",

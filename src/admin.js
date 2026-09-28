@@ -8,6 +8,7 @@ import { AUTHOR_COLUMNS, VERIFIED, authorFromRow, publicUser } from "./users.js"
 import { REPORT_REASONS } from "../public/js/data.js";
 import { fail, now } from "./util.js";
 import { auditStmt } from "./audit.js";
+import { rescore } from "./battle.js";
 
 const REASON = Object.fromEntries(REPORT_REASONS.map((r) => [r.id, r.name]));
 
@@ -20,9 +21,10 @@ export async function queue(env, user) {
   assertAdmin(user);
   const [posts, comments, reasons] = await env.DB.batch([
     env.DB.prepare(
-      `SELECT p.id, p.text, p.hidden, p.reports, p.anonymous, p.created_at, ${AUTHOR_COLUMNS}
+      `SELECT p.id, p.text, p.hidden, p.reports, p.anonymous, p.created_at, ${AUTHOR_COLUMNS},
+       (SELECT a.note FROM audit a WHERE a.target = 'p:' || p.id AND a.kind = 'hide' ORDER BY a.id DESC LIMIT 1) AS flag
        FROM posts p JOIN users u ON u.id = p.author_id
-       WHERE p.reports > 0 AND p.hidden != 2 ORDER BY p.hidden DESC, p.reports DESC, p.id DESC LIMIT 50`
+       WHERE (p.reports > 0 OR p.hidden = 1) AND p.hidden != 2 ORDER BY p.hidden DESC, p.reports DESC, p.id DESC LIMIT 50`
     ),
     env.DB.prepare(
       `SELECT c.id, c.post_id, c.text, c.hidden, c.reports, c.anonymous, c.created_at, ${AUTHOR_COLUMNS}
@@ -44,7 +46,7 @@ export async function queue(env, user) {
     reports: r.reports,
     anonymous: !!r.anonymous,
     author: authorFromRow(r),
-    reasons: why.get(`${type}:${r.id}`) || [],
+    reasons: [...(r.flag?.startsWith("фильтр") ? [`🤖 ${r.flag}`] : []), ...(why.get(`${type}:${r.id}`) || [])],
     created_at: r.created_at,
   });
   const items = [...posts.results.map(item("p")), ...comments.results.map(item("c"))].sort(
@@ -85,7 +87,39 @@ export async function banById(env, user, userId, body) {
   }
   const days = Math.max(0, Math.min(3650, Number(body.days) || 0));
   const until = await banUser(env, userId, days, String(body.reason || "нарушение правил").slice(0, 200), { actorId: user.id });
-  return { banned_until: until };
+  const wiped = body.wipe ? await wipe(env, user, userId) : null;
+  return { banned_until: until, wiped };
+}
+
+const WIPE_WINDOW = 7 * 86400;
+
+/**
+ * Против «бомбера»: всё, что человек написал за неделю, — удалить разом.
+ * Удаление мягкое, как обычно: модераторы видят тексты в журнале и под
+ * постами. Счётчики комментариев поправляются до того, как их спрячем.
+ */
+export async function wipe(env, user, userId) {
+  assertAdmin(user);
+  const since = now() - WIPE_WINDOW;
+  const [posts, comments] = await env.DB.batch([
+    env.DB.prepare("SELECT COUNT(*) AS n FROM posts WHERE author_id = ? AND created_at > ? AND hidden != 2").bind(userId, since),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM comments WHERE author_id = ? AND created_at > ? AND hidden != 2").bind(userId, since),
+  ]);
+  const p = posts.results[0].n;
+  const c = comments.results[0].n;
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE posts SET comments = MAX(0, comments - (SELECT COUNT(*) FROM comments c
+         WHERE c.post_id = posts.id AND c.author_id = ? AND c.created_at > ? AND c.hidden = 0))
+       WHERE id IN (SELECT post_id FROM comments WHERE author_id = ? AND created_at > ? AND hidden = 0)`
+    ).bind(userId, since, userId, since),
+    env.DB.prepare("UPDATE comments SET hidden = 2 WHERE author_id = ? AND created_at > ? AND hidden != 2").bind(userId, since),
+    env.DB.prepare("UPDATE posts SET hidden = 2 WHERE author_id = ? AND created_at > ? AND hidden != 2").bind(userId, since),
+    auditStmt(env, { kind: "wipe", target: `u:${userId}`, actorId: user.id, note: `за неделю: постов ${p}, комментариев ${c}` }),
+  ]);
+  // Стёртое больше не приносит очков факультету.
+  await rescore(env, userId);
+  return { posts: p, comments: c };
 }
 
 /** Галочка у имени: выдать или снять. */

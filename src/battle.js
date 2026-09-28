@@ -8,17 +8,80 @@
  * жалобами и удалённое не считается. Анонимные посты считаются, но только
  * суммой — кто их написал, отсюда не узнать.
  *
- * Считается на лету по данным недели и кэшируется на пару минут.
+ * Очки копятся в таблице score: строка на человека и день (сырые очки,
+ * потолок применяется при подсчёте). Пост, комментарий, лайк, вступление
+ * прибавляют к строке сразу, в той же пачке запросов, что и само действие.
+ * Удаление, скрытие, возврат, «стереть всё», смена факультета — редкие
+ * события: для них очки человека за две недели пересчитываются заново
+ * (rescore). Так таблица лидеров читает строки только этой недели, а не
+ * все посты, комментарии и лайки за всё время.
  */
 
 import { FACULTY } from "../public/js/data.js";
-import { DAY } from "./util.js";
+import { DAY, now as nowSec } from "./util.js";
 
 export const POINTS = { post: 3, comment: 1, like: 1, member: 5 };
 export const DAILY_CAP = 30;
 const MSK = 3 * 3600;
 const WEEK = 7 * DAY;
-const CACHE_TTL = 120;
+// Таблица факультетов меняется медленно: пять минут свежести хватает, а
+// «Ваш вклад» считается вживую.
+const CACHE_TTL = 300;
+const MEMBERS_TTL = 6 * 3600;
+
+/** Номер дня по Москве. */
+export const dayOf = (t) => Math.floor((t + MSK) / DAY);
+
+/**
+ * Прибавить очки человеку за день — оператор для пакета. fac — текущий
+ * факультет; нет факультета — нет и очков.
+ */
+export function bump(env, uid, fac, t, pts) {
+  return env.DB.prepare(
+    `INSERT INTO score (d, uid, fac, pts) SELECT ?, ?, ?, ? WHERE ? IS NOT NULL
+     ON CONFLICT(d, uid) DO UPDATE SET pts = pts + excluded.pts, fac = excluded.fac`
+  ).bind(dayOf(t), uid, fac, pts, fac);
+}
+
+/**
+ * Пересчитать очки человека за эту и прошлую неделю по самим постам,
+ * комментариям и лайкам. Для редких событий: удаление, скрытие, возврат.
+ */
+export async function rescore(env, uid) {
+  if (!uid) return;
+  const since = weekStart(nowSec()) - WEEK;
+  const [user, posts, comments, likes] = await env.DB.batch([
+    env.DB.prepare("SELECT faculty, created_at FROM users WHERE id = ?").bind(uid),
+    env.DB.prepare(
+      `SELECT (created_at + ${MSK}) / ${DAY} AS d, COUNT(*) AS n FROM posts
+       WHERE author_id = ? AND created_at >= ? AND hidden = 0 GROUP BY d`
+    ).bind(uid, since),
+    env.DB.prepare(
+      `SELECT (created_at + ${MSK}) / ${DAY} AS d, COUNT(*) AS n FROM comments
+       WHERE author_id = ? AND created_at >= ? AND hidden = 0 GROUP BY d`
+    ).bind(uid, since),
+    env.DB.prepare(
+      `SELECT (l.created_at + ${MSK}) / ${DAY} AS d, COUNT(*) AS n FROM posts p JOIN likes l ON l.post_id = p.id
+       WHERE p.author_id = ? AND p.hidden = 0 AND l.user_id != p.author_id AND l.created_at >= ? GROUP BY d`
+    ).bind(uid, since),
+  ]);
+  const u = user.results[0];
+  const perDay = new Map();
+  const add = (d, pts) => perDay.set(d, (perDay.get(d) || 0) + pts);
+  for (const r of posts.results) add(r.d, POINTS.post * r.n);
+  for (const r of comments.results) add(r.d, POINTS.comment * r.n);
+  for (const r of likes.results) add(r.d, POINTS.like * r.n);
+  if (u?.faculty && u.created_at >= since) add(dayOf(u.created_at), POINTS.member);
+
+  const first = dayOf(since);
+  const days = Array.from({ length: 15 }, (_, i) => first + i);
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM score WHERE uid = ? AND d IN (${days.map(() => "?").join(",")})`).bind(uid, ...days),
+    ...(u?.faculty
+      ? [...perDay].map(([d, pts]) => env.DB.prepare("INSERT INTO score (d, uid, fac, pts) VALUES (?, ?, ?, ?)").bind(d, uid, u.faculty, pts))
+      : []),
+  ]);
+}
 
 /** Начало недели (понедельник 00:00 МСК), в которую попадает момент t. */
 export function weekStart(t) {
@@ -28,9 +91,13 @@ export function weekStart(t) {
   return (days - dow) * DAY - MSK;
 }
 
-async function compute(env, start) {
+/**
+ * Разовое заполнение score по сырым данным — при первом запуске после
+ * выкладки. Пишет абсолютные значения: повторный запуск ничего не портит.
+ */
+async function backfill(env, start) {
   const end = start + WEEK;
-  const [posts, comments, likes, joined, members] = await env.DB.batch([
+  const [posts, comments, likes, joined] = await env.DB.batch([
     env.DB.prepare(
       `SELECT p.author_id AS uid, u.faculty AS fac, (p.created_at + ${MSK}) / ${DAY} AS d, COUNT(*) AS n
        FROM posts p JOIN users u ON u.id = p.author_id
@@ -53,7 +120,6 @@ async function compute(env, start) {
       `SELECT id AS uid, faculty AS fac, (created_at + ${MSK}) / ${DAY} AS d FROM users
        WHERE created_at >= ? AND created_at < ? AND faculty IS NOT NULL`
     ).bind(start, end),
-    env.DB.prepare("SELECT faculty AS fac, COUNT(*) AS n FROM users WHERE faculty IS NOT NULL GROUP BY faculty"),
   ]);
 
   // Очки человека за день — с потолком; вход в Поток идёт в счёт того же дня.
@@ -71,61 +137,107 @@ async function compute(env, start) {
   add(likes.results, POINTS.like);
   add(joined.results, POINTS.member, () => 1);
 
+  const rows = [...perDay.entries()]
+    .filter(([, v]) => v.fac)
+    .map(([key, v]) =>
+      env.DB.prepare("INSERT INTO score (d, uid, fac, pts) VALUES (?, ?, ?, ?) ON CONFLICT(d, uid) DO UPDATE SET pts = excluded.pts, fac = excluded.fac").bind(
+        Number(key.split(":")[1]),
+        v.uid,
+        v.fac,
+        v.pts
+      )
+    );
+  for (let i = 0; i < rows.length; i += 50) await env.DB.batch(rows.slice(i, i + 50));
+}
+
+async function compute(env, start) {
+  const end = start + WEEK;
+  const first = dayOf(start);
+  const { results } = await env.DB.prepare("SELECT uid, fac, pts FROM score WHERE d >= ? AND d < ? AND pts > 0")
+    .bind(first, first + 7)
+    .all();
+  const members = await memberCounts(env);
+
+  // Потолок — на человека за день.
   const byFac = new Map();
-  const byUser = new Map();
-  for (const { uid, fac, pts } of perDay.values()) {
+  for (const { uid, fac, pts } of results) {
     if (!FACULTY[fac] || fac === "other") continue;
-    const capped = Math.min(pts, DAILY_CAP);
     const f = byFac.get(fac) || { points: 0, active: new Set() };
-    f.points += capped;
+    f.points += Math.min(pts, DAILY_CAP);
     f.active.add(uid);
     byFac.set(fac, f);
-    byUser.set(uid, (byUser.get(uid) || 0) + capped);
   }
-  const memberCount = new Map(members.results.map((r) => [r.fac, r.n]));
-
   const faculties = [...byFac.entries()]
     .map(([id, f]) => {
-      const m = memberCount.get(id) || f.active.size;
+      const m = members[id] || f.active.size;
       return { id, points: f.points, active: f.active.size, members: m, per_member: Math.round((f.points / Math.max(m, 1)) * 10) / 10 };
     })
     .sort((a, b) => b.points - a.points || b.active - a.active);
   faculties.forEach((f, i) => (f.rank = i + 1));
-  return { start, end, faculties, users: Object.fromEntries(byUser) };
+  return { start, end, faculties };
 }
 
-/** Результаты недели — из кэша, если считали в последние пару минут. */
-async function results(env, start, ctx) {
+/** Сколько людей на факультетах — меняется медленно, кэш на шесть часов. */
+async function memberCounts(env) {
+  return cached(env, "members", MEMBERS_TTL, async () => {
+    const { results } = await env.DB.prepare("SELECT faculty AS fac, COUNT(*) AS n FROM users WHERE faculty IS NOT NULL GROUP BY faculty").all();
+    return Object.fromEntries(results.map((r) => [r.fac, r.n]));
+  });
+}
+
+async function cached(env, name, ttl, make, ctx) {
   // NO_CACHE — только в разработке (.dev.vars): тестам нужны свежие числа.
   const cache = typeof caches !== "undefined" && !env.NO_CACHE ? caches.default : null;
-  const key = new Request(`https://potok.internal/battle/${start}`);
+  const key = new Request(`https://potok.internal/battle/${name}`);
   if (cache) {
     const hit = await cache.match(key);
     if (hit) return hit.json();
   }
-  const data = await compute(env, start);
-  const past = start + WEEK < Date.now() / 1000;
+  const data = await make();
   if (cache) {
-    const res = new Response(JSON.stringify(data), {
-      headers: { "content-type": "application/json", "cache-control": `max-age=${past ? 3600 : CACHE_TTL}` },
-    });
-    ctx?.waitUntil(cache.put(key, res));
+    const put = cache.put(key, new Response(JSON.stringify(data), { headers: { "content-type": "application/json", "cache-control": `max-age=${ttl}` } }));
+    if (ctx) ctx.waitUntil(put);
+    else await put;
   }
   return data;
+}
+
+/** Результаты недели — из кэша, если считали в последние минуты. */
+function results(env, start, ctx) {
+  const past = start + WEEK < Date.now() / 1000;
+  return cached(env, `week/${start}`, past ? DAY : CACHE_TTL, () => compute(env, start), ctx);
+}
+
+/** Первый запуск после выкладки: заполнить score за эту и прошлую неделю. */
+async function ensureScores(env, start) {
+  const done = await env.DB.prepare("SELECT value FROM settings WHERE key = 'score_v1'").first("value");
+  if (done) return;
+  await backfill(env, start - WEEK);
+  await backfill(env, start);
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('score_v1', '1') ON CONFLICT(key) DO NOTHING").run();
 }
 
 export async function battle(env, user, ctx) {
   const now = Math.floor(Date.now() / 1000);
   const start = weekStart(now);
-  const [week, last] = await Promise.all([results(env, start, ctx), results(env, start - WEEK, ctx)]);
-  const mine = week.faculties.find((f) => f.id === user.faculty) || null;
+  await ensureScores(env, start);
+  // «Ваш вклад» — вживую, семь точечных чтений по ключу (день, человек).
+  const days = Array.from({ length: 7 }, (_, i) => dayOf(start) + i);
+  const [week, last, mine] = await Promise.all([
+    results(env, start, ctx),
+    results(env, start - WEEK, ctx),
+    env.DB.prepare(`SELECT COALESCE(SUM(MIN(pts, ${DAILY_CAP})), 0) AS n FROM score WHERE d IN (${days.map(() => "?").join(",")}) AND uid = ?`)
+      .bind(...days, user.id)
+      .first("n"),
+  ]);
+  const place = week.faculties.find((f) => f.id === user.faculty) || null;
   return {
     start: week.start,
     end: week.end,
     now,
     faculties: week.faculties,
     total: Object.keys(FACULTY).length - 1,
-    me: { faculty: user.faculty, points: week.users[user.id] || 0, rank: mine?.rank || null },
+    me: { faculty: user.faculty, points: mine, rank: place?.rank || null },
     champion: last.faculties[0] ? { id: last.faculties[0].id, points: last.faculties[0].points } : null,
     rules: { ...POINTS, cap: DAILY_CAP },
   };

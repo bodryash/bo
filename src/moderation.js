@@ -1,6 +1,7 @@
 import { REPORT_REASONS } from "../public/js/data.js";
 import { removeComment } from "./comments.js";
 import { auditStmt } from "./audit.js";
+import { rescore } from "./battle.js";
 import { appUrl } from "./notify.js";
 import { displayName } from "./users.js";
 import { DAY, adminIds, callTelegram, clip, escapeHtml, fail, now } from "./util.js";
@@ -8,6 +9,7 @@ import { DAY, adminIds, callTelegram, clip, escapeHtml, fail, now } from "./util
 // Три жалобы от разных людей — и пост прячется до решения модератора.
 // Одной мало: её может оставить любой, кто просто не согласен.
 const HIDE_AFTER = 3;
+const NSFW_HIDE_AFTER = 2;
 const REPORTS_PER_DAY = 30;
 const REASON = Object.fromEntries(REPORT_REASONS.map((r) => [r.id, r.name]));
 
@@ -46,15 +48,26 @@ export async function report(env, user, body, ctx) {
     .bind(target.id)
     .first();
 
-  if (updated.hidden === 0 && updated.reports >= HIDE_AFTER) {
-    await hideByReports(env, target, row);
+  // «18+» прячем уже после двух жалоб: порно в ленте не должно висеть,
+  // пока соберётся третья.
+  let nsfw = 0;
+  if (reason === "nsfw" && updated.hidden === 0 && updated.reports < HIDE_AFTER) {
+    nsfw = await env.DB.prepare("SELECT COUNT(*) AS n FROM reports WHERE target = ? AND reason = 'nsfw'").bind(key).first("n");
+  }
+  if (updated.hidden === 0 && (updated.reports >= HIDE_AFTER || nsfw >= NSFW_HIDE_AFTER)) {
+    await hideByReports(env, target, row, nsfw >= NSFW_HIDE_AFTER ? "две жалобы на 18+" : "три жалобы");
     ctx.waitUntil(alertAdmins(env, target));
   }
   return { ok: true };
 }
 
-async function hideByReports(env, target, row) {
-  const log = auditStmt(env, { kind: "hide", target: `${target.type}:${target.id}`, note: "три жалобы" });
+async function hideByReports(env, target, row, note) {
+  await hideRows(env, target, row, note);
+  await rescore(env, row.author_id);
+}
+
+async function hideRows(env, target, row, note) {
+  const log = auditStmt(env, { kind: "hide", target: `${target.type}:${target.id}`, note });
   if (target.type === "p") {
     await env.DB.batch([env.DB.prepare("UPDATE posts SET hidden = 1 WHERE id = ? AND hidden = 0").bind(target.id), log]);
   } else {
@@ -115,7 +128,7 @@ export function moderationButtons(env, target, postId) {
   };
 }
 
-export async function alertAdmins(env, target) {
+export async function alertAdmins(env, target, title = "🚩 Скрыто жалобами") {
   try {
     const card = await describeTarget(env, target);
     if (!card) return;
@@ -123,7 +136,7 @@ export async function alertAdmins(env, target) {
       await callTelegram(env, "sendMessage", {
         chat_id: chatId,
         parse_mode: "HTML",
-        text: "🚩 Скрыто жалобами\n\n" + card.text,
+        text: title + "\n\n" + card.text,
         reply_markup: moderationButtons(env, target, card.postId),
         link_preview_options: { is_disabled: true },
       });
@@ -156,6 +169,7 @@ export async function restoreTarget(env, target, { actorId = null, note = null }
       log,
     ]);
   }
+  await rescore(env, row.author_id);
   return "Возвращено";
 }
 
@@ -168,6 +182,7 @@ export async function deleteTarget(env, target, { actorId = null, note = "мод
       env.DB.prepare("UPDATE posts SET hidden = 2 WHERE id = ?").bind(target.id),
       auditStmt(env, { kind: "delete", target: `p:${target.id}`, actorId, note }),
     ]);
+    await rescore(env, row.author_id);
   } else await removeComment(env, row, { actorId, note });
   return "Удалено";
 }

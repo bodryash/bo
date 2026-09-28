@@ -252,7 +252,7 @@ async function seed(as, DB) {
     text: talk.text + "\n\nUPD: перенесли в 1-й гуманитарный, ауд. 402. Спасибо всем!",
   });
   // Спам, который трое скрыли жалобами, — в очереди и серым под постом.
-  const spam = await comment(p.kirill, quiz, { text: "Курсовые и дипломы недорого, пишите в личку 📩" });
+  const spam = await comment(p.kirill, quiz, { text: "Подписывайтесь на мой канал про крипту, ссылка в профиле 🚀" });
   for (const who of [p.anya, p.dima, p.vera]) await as(who, "POST", "/api/report", { target: `c:${spam}`, reason: "spam" });
   // Галочка у ведущего квизов — подтверждённый организатор.
   const gleb = (await DB.prepare("SELECT id FROM users WHERE tg_id = ?").bind(p.gleb.id).first()).id;
