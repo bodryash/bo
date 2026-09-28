@@ -92,7 +92,11 @@ jobs:
               echo "Переношу данные из старой базы potok"
               # Перенос сорвался — новую базу убираем, чтобы следующий
               # запуск начал перенос заново, а не с полупустой базы.
-              if ! { npx wrangler d1 export potok --remote --output old.sql && npx wrangler d1 execute $DB --remote --file old.sql -y; }; then
+              # wrangler ищет базу по записи в wrangler.toml, поэтому перед
+              # каждой командой подставляем в неё нужную базу.
+              use_db() { sed -i "s/^database_name = .*/database_name = \"$1\"/; s/^database_id = .*/database_id = \"$2\"/" wrangler.toml; }
+              if ! { use_db potok "$old" && npx wrangler d1 export potok --remote --output old.sql \
+                     && use_db $DB "$id" && npx wrangler d1 execute $DB --remote --file old.sql -y; }; then
                 npx wrangler d1 delete $DB -y
                 echo "::error::Не удалось перенести данные из старой базы"
                 exit 1
