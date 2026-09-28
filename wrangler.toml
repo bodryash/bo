@@ -1,0 +1,39 @@
+name = "potok"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Страница приложения. Файлы из public отдаются напрямую, мимо кода
+# воркера; до кода доходят только адреса, которых среди файлов нет:
+# /api/*, /img/*, /tg.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Уборка раз в час: фото, не попавшие в пост, и уведомления старше 60 дней.
+[triggers]
+crons = ["17 * * * *"]
+
+[vars]
+# Модераторы — id в Telegram через запятую. Узнать свой: @userinfobot.
+ADMIN_IDS = ""
+# Имя бота без @ и короткое имя мини-приложения из BotFather (/newapp):
+# из них собираются ссылки «поделиться постом» вида t.me/бот/приложение.
+BOT_USERNAME = ""
+APP_NAME = ""
+# Адрес приложения для кнопок в сообщениях бота. Пусто — адрес воркера.
+APP_URL = ""
+
+# Секреты не лежат в файлах, задаются один раз:
+#   npx wrangler secret put BOT_TOKEN
+#   npx wrangler secret put WEBHOOK_SECRET
+
+[[d1_databases]]
+binding = "DB"
+database_name = "potok"
+# Заменить на id из вывода `npx wrangler d1 create potok`.
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# Фото. Бакет создаётся `npx wrangler r2 bucket create potok-media`.
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "potok-media"

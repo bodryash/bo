@@ -1,0 +1,18 @@
+{
+  "name": "potok",
+  "version": "1.0.0",
+  "description": "Поток — студенческая соцсеть МГУ в Telegram Mini App",
+  "scripts": {
+    "dev": "wrangler dev --ip 127.0.0.1 --port 8787",
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 execute potok --local --file schema.sql",
+    "db:remote": "wrangler d1 execute potok --remote --file schema.sql",
+    "smoke": "node tests/smoke.mjs",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.143.0"
+  },
+  "private": true,
+  "type": "module"
+}
