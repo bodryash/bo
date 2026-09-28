@@ -363,14 +363,15 @@ export function syncThumb(seg) {
   } else place();
 }
 
-/** Знак Потока — «:П», подмигивающий смайлик из названия. */
+/** Знак Потока — чёрный «:П» на белом: смайлик из названия. */
 export function logo(size = 32) {
   const el = document.createElement("span");
   el.className = "logo";
   el.style.width = el.style.height = `${size}px`;
   el.innerHTML =
-    '<svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3d7bff"/><stop offset="1" stop-color="#5a2dff"/></linearGradient></defs>' +
-    '<rect width="64" height="64" rx="18" fill="url(#lg)"/><circle class="mk-dot" cx="16" cy="25" r="4.6" fill="#fff"/><circle class="mk-dot mk-dot2" cx="16" cy="40.5" r="4.6" fill="#fff"/><path class="mk-p" d="M27.5 47V18.5h21V47" fill="none" stroke="#fff" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="18" fill="#fff"/>' +
+    '<circle class="mk-dot" cx="16" cy="25" r="4.6" fill="#0f1419"/><circle class="mk-dot mk-dot2" cx="16" cy="40.5" r="4.6" fill="#0f1419"/>' +
+    '<path class="mk-p" d="M27.5 47V18.5h21V47" fill="none" stroke="#0f1419" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   return el;
 }
 
