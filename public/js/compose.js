@@ -4,7 +4,7 @@ import { LIMITS, RUBRIC, RUBRICS } from "./data.js";
 import { prepareImage } from "./image.js";
 import { back, go } from "./router.js";
 import { haptic } from "./tg.js";
-import { autoGrow, h, icon, toast, toggle } from "./ui.js";
+import { autoGrow, h, icon, syncThumb, toast, toggle } from "./ui.js";
 
 const DRAFT_KEY = "draft";
 
@@ -41,15 +41,16 @@ export function composeScreen() {
 
   // ——— куда ———
   const scopeSeg = h("div.segmented.wide");
+  const scopeBtns = [
+    ["fac", myFacultyShort()],
+    ["msu", "Весь МГУ"],
+  ].map(([id, name]) =>
+    h("button", { dataset: { id }, onclick: () => ((state.scope = id), haptic.select(), paintScope(), saveDraft()) }, name)
+  );
+  scopeSeg.append(...scopeBtns);
   function paintScope() {
-    scopeSeg.replaceChildren(
-      ...[
-        ["fac", myFacultyShort()],
-        ["msu", "Весь МГУ"],
-      ].map(([id, name]) =>
-        h("button" + (state.scope === id ? ".on" : ""), { onclick: () => ((state.scope = id), haptic.select(), paintScope(), saveDraft()) }, name)
-      )
-    );
+    for (const b of scopeBtns) b.classList.toggle("on", b.dataset.id === state.scope);
+    syncThumb(scopeSeg);
   }
 
   // ——— рубрика ———

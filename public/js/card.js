@@ -9,19 +9,26 @@ import { go } from "./router.js";
 import { haptic, openLink } from "./tg.js";
 import { actionSheet, ago, avatar, confirmDialog, eventBadge, eventDate, formatPrice, h, icon, plural, richText, toast } from "./ui.js";
 import { openViewer } from "./viewer.js";
+import { bump, heartBurst, pressable } from "./gestures.js";
 
 const CLOSED_LABEL = { market: "Продано", lost: "Нашлось", housing: "Уже не актуально" };
 
-export function postCard(post, { full = false, showScope = false, onRemove } = {}) {
-  const card = h("article.post", { dataset: { id: post.id } });
+export function postCard(post, { full = false, showScope = false, onRemove, index = 0 } = {}) {
+  const card = h("article.post.appear", { dataset: { id: post.id }, style: { "--i": Math.min(index, 8) } });
   if (post.closed) card.classList.add("closed");
-  if (!full) {
-    card.classList.add("tappable");
-    card.addEventListener("click", (e) => {
-      if (e.target.closest("button, a, .media, .poll")) return;
-      go(`/p/${post.id}`);
-    });
-  }
+  if (!full) card.classList.add("tappable");
+  // Касание — открыть пост, двойное — лайк с сердцем, долгое — меню.
+  pressable(card, {
+    ignore: "button, a, .poll, input, textarea",
+    onTap: full ? null : (e) => !e.target.closest(".media") && go(`/p/${post.id}`),
+    onDoubleTap: (e) => {
+      if (post.hidden) return;
+      heartBurst(card, e.clientX, e.clientY);
+      if (!post.liked) card.querySelector(".act.like")?.click();
+      else haptic.tap();
+    },
+    onLongPress: () => postMenu(post, { onRemove, card }),
+  });
 
   card.append(header(post, { showScope, onRemove, card }));
   if (post.hidden === 1) card.append(h("div.notice.warn", "Пост скрыт жалобами и ждёт решения модератора. Остальным он не виден."));
@@ -124,39 +131,56 @@ export function mediaGrid(media) {
   return grid;
 }
 
+/**
+ * Опрос. До голоса — просто варианты; после — проценты и полоски.
+ * Коснуться другого варианта — переголосовать, своего — отменить голос.
+ */
 function pollBlock(post) {
   const wrap = h("div.poll");
-  const render = () => {
-    wrap.replaceChildren();
+  let busy = false;
+  const render = (changed) => {
     const { options, counts, total, mine } = post.poll;
     const voted = mine !== null;
-    options.forEach((text, i) => {
-      const pct = total ? Math.round((counts[i] / total) * 100) : 0;
-      const row = h(
-        "button.poll-option" + (voted ? ".voted" : "") + (mine === i ? ".mine" : ""),
-        {
-          disabled: voted,
-          onclick: async (e) => {
-            e.stopPropagation();
-            haptic.select();
-            try {
-              const res = await api.post(`/api/posts/${post.id}/vote`, { option: i });
-              post.poll = res.poll;
-              render();
-            } catch (err) {
-              toast(err.message, "error");
-            }
-          },
-        },
-        voted ? h("div.poll-bar", { style: { width: `${pct}%` } }) : null,
-        h("span.poll-text", text, mine === i ? icon("check") : null),
-        voted ? h("span.poll-pct", `${pct}%`) : null
-      );
-      wrap.append(row);
-    });
-    wrap.append(h("div.poll-total", total ? `${total} ${plural(total, "голос", "голоса", "голосов")}` : "Пока никто не голосовал"));
+    wrap.replaceChildren(
+      ...options.map((text, i) => {
+        const pct = total ? Math.round((counts[i] / total) * 100) : 0;
+        const bar = voted ? h("div.poll-bar", { style: { width: changed ? "0%" : `${pct}%` } }) : null;
+        if (bar && changed) requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.width = `${pct}%`)));
+        return h(
+          "button.poll-option" + (voted ? ".voted" : "") + (mine === i ? ".mine" : ""),
+          { onclick: (e) => (e.stopPropagation(), vote(i)) },
+          bar,
+          h("span.poll-text", text, mine === i ? icon("check") : null),
+          voted ? h("span.poll-pct", `${pct}%`) : null
+        );
+      }),
+      h(
+        "div.poll-total",
+        total ? `${total} ${plural(total, "голос", "голоса", "голосов")}` : "Пока никто не голосовал",
+        voted ? h("span.poll-hint", " · коснитесь своего варианта, чтобы отменить") : null
+      )
+    );
   };
-  render();
+
+  async function vote(i) {
+    if (busy) return;
+    busy = true;
+    const cancel = post.poll.mine === i;
+    haptic[cancel ? "tap" : "select"]();
+    try {
+      const res = await api.post(`/api/posts/${post.id}/vote`, { option: cancel ? null : i });
+      post.poll = res.poll;
+      render(true);
+      if (cancel) toast("Голос отменён");
+    } catch (err) {
+      haptic.error();
+      toast(err.message, "error");
+    } finally {
+      busy = false;
+    }
+  }
+
+  render(false);
   return wrap;
 }
 
@@ -178,8 +202,11 @@ function actions(post, { full }) {
     post.liked = on;
     post.likes += on ? 1 : -1;
     like.classList.toggle("on", on);
+    like.classList.remove("pop");
+    void like.offsetWidth;
     like.classList.toggle("pop", on);
     likeCount.textContent = post.likes ? String(post.likes) : "";
+    bump(likeCount);
     try {
       const res = await api.post(`/api/posts/${post.id}/like`, { on });
       post.likes = res.likes;

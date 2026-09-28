@@ -10,7 +10,8 @@
  * может не дать менять адрес страницы.
  */
 
-import { backButton, insideTelegram } from "./tg.js";
+import { reducedMotion, swipeX } from "./gestures.js";
+import { backButton, insideTelegram, vibrate } from "./tg.js";
 import { h, icon } from "./ui.js";
 
 const routes = [];
@@ -18,6 +19,11 @@ const tabScreens = new Map();
 let current = null; // { key, screen, tab }
 let depth = 0;
 let guard = null;
+// Куда идёт переход: forward — вглубь, back — назад, из жеста — экран уже
+// уехал под пальцем, досматривать анимацию не нужно.
+let direction = "forward";
+let lastTab = null;
+const DURATION = 280;
 
 const memory = !!window.POTOK_DEMO;
 const stack = ["/"];
@@ -61,6 +67,7 @@ export function go(path, { replace = false } = {}) {
     if (current?.screen.onReselect) current.screen.onReselect();
     return;
   }
+  direction = "forward";
   if (replace) {
     replacePath(path);
     render();
@@ -73,7 +80,8 @@ export function go(path, { replace = false } = {}) {
   }
 }
 
-export function back() {
+export function back({ gesture = false } = {}) {
+  direction = gesture ? "gesture" : "back";
   if (memory) {
     if (stack.length > 1) stack.pop();
     else stack[0] = "/";
@@ -124,19 +132,13 @@ function render() {
     return render();
   }
 
-  if (current) {
-    current.screen.onHide?.();
-    if (current.tab) {
-      // hidden сбрасывает прокрутку — запоминаем её до того, как спрятать.
-      current.screen.savedScroll = current.screen.el.scrollTop;
-      current.screen.el.hidden = true;
-    } else {
-      current.screen.destroy?.();
-      current.screen.el.remove();
-    }
-  }
+  const prev = current;
+  const dir = direction;
+  direction = "forward";
+  const animate = prev && !reducedMotion();
 
   let screen;
+  let isNew = false;
   if (match.tab) {
     screen = tabScreens.get(match.pattern);
     if (!screen) {
@@ -146,14 +148,51 @@ function render() {
       root.append(screen.el);
     }
     screen.el.hidden = false;
+    screen.el.classList.remove("under");
+    lastTab = screen;
   } else {
     screen = match.factory(params);
+    isNew = true;
     screen.el.classList.add("screen", "pushed");
     // Вне Telegram его кнопки «назад» нет — рисуем свою полосу сверху.
     if (!insideTelegram && !OWN_BACK.has(path)) {
-      screen.el.prepend(h("div.backbar", h("button", { onclick: back }, icon("back"), "Назад")));
+      screen.el.prepend(h("div.backbar", h("button", { onclick: () => back() }, icon("back"), "Назад")));
     }
     root.append(screen.el);
+    edgeSwipe(screen);
+  }
+
+  if (prev && prev.screen !== screen) {
+    prev.screen.onHide?.();
+    const el = prev.screen.el;
+    // hidden сбрасывает прокрутку — запоминаем её до того, как спрятать.
+    if (prev.tab) prev.screen.savedScroll = el.scrollTop;
+    const leave = () => {
+      el.classList.remove("leaving-back", "leaving-under");
+      el.style.transform = el.style.transition = el.style.boxShadow = "";
+      if (prev.tab) {
+        if (current?.screen !== prev.screen) el.hidden = true;
+      } else {
+        prev.screen.destroy?.();
+        el.remove();
+      }
+    };
+    if (!animate || dir === "gesture" || (prev.tab && match.tab)) {
+      leave();
+    } else {
+      // Уходящий экран: назад — уезжает вправо поверх; вперёд — остаётся
+      // под новым и чуть сдвигается, как в iOS.
+      el.classList.add(dir === "back" ? "leaving-back" : "leaving-under");
+      setTimeout(leave, DURATION);
+    }
+  }
+
+  if (animate) {
+    const cls = match.tab && prev?.tab ? "enter-tab" : dir === "forward" && isNew ? "enter-push" : dir === "back" ? "enter-back" : "";
+    if (cls) {
+      screen.el.classList.add(cls);
+      setTimeout(() => screen.el.classList.remove(cls), DURATION);
+    }
   }
 
   const saved = match.tab ? screen.savedScroll : 0;
@@ -168,4 +207,34 @@ function render() {
 /** Вернуть кнопку «назад» после того, как её временно забрал просмотр фото. */
 export function refreshBackButton() {
   backButton(current && !current.tab ? back : null);
+}
+
+/**
+ * Свайп от левого края — назад, как в iOS: экран едет за пальцем, а под
+ * ним уже видна вкладка, откуда пришли. Отпустил рано — экран вернулся.
+ */
+function edgeSwipe(screen) {
+  if (currentPath() === "/onboarding") return;
+  const el = screen.el;
+  const reveal = (on) => {
+    if (!lastTab || lastTab.el === el) return;
+    lastTab.el.hidden = !on;
+    lastTab.el.classList.toggle("under", on);
+    if (on && lastTab.savedScroll) lastTab.el.scrollTop = lastTab.savedScroll;
+  };
+  swipeX(el, {
+    edgeOnly: true,
+    resist: 0,
+    move: () => {
+      reveal(true);
+      return el;
+    },
+    onCancel: () => setTimeout(() => current?.screen === screen && reveal(false), 280),
+    onSwipe: () => {
+      vibrate("light");
+      el.style.transition = "transform .2s ease-out";
+      el.style.transform = "translateX(100%)";
+      setTimeout(() => back({ gesture: true }), 190);
+    },
+  });
 }

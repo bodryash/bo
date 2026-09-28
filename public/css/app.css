@@ -152,14 +152,168 @@ a {
   padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 16px);
 }
 
+/* ——— переходы между экранами ———
+   Вперёд: новый экран въезжает справа поверх, старый чуть уходит влево
+   и тускнеет. Назад — наоборот. Вкладки сменяются мягким подъёмом. */
+
 .screen.pushed {
-  animation: push-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 2;
+  touch-action: pan-y;
 }
 
-@keyframes push-in {
-  from {
-    opacity: 0;
-    transform: translateX(18px);
+.screen.enter-push {
+  animation: enter-push 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  box-shadow: -12px 0 30px rgba(0, 0, 0, 0.12);
+}
+
+.screen.leaving-under {
+  animation: leave-under 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  z-index: 1;
+}
+
+.screen.leaving-back {
+  z-index: 5;
+  pointer-events: none;
+  animation: leave-back 0.26s cubic-bezier(0.4, 0, 0.6, 1) both;
+  box-shadow: -12px 0 30px rgba(0, 0, 0, 0.12);
+}
+
+.screen.enter-back {
+  animation: enter-back 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+.screen.enter-tab {
+  animation: enter-tab 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.screen.under {
+  z-index: 1;
+  filter: brightness(0.94);
+}
+
+@keyframes enter-push {
+  from { transform: translateX(100%); }
+}
+
+@keyframes leave-under {
+  to { transform: translateX(-24%); filter: brightness(0.9); }
+}
+
+@keyframes leave-back {
+  to { transform: translateX(100%); }
+}
+
+@keyframes enter-back {
+  from { transform: translateX(-24%); filter: brightness(0.9); }
+}
+
+@keyframes enter-tab {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+/* ——— отклик на нажатие: всё, на что можно нажать, проминается ——— */
+
+button,
+.tappable {
+  transition: transform 0.14s cubic-bezier(0.3, 0.7, 0.4, 1.5), background-color 0.15s, color 0.15s, opacity 0.15s;
+}
+
+button:not(:disabled):active {
+  transform: scale(0.95);
+}
+
+.post.tappable:active {
+  transform: scale(0.985);
+}
+
+.long-pressed {
+  animation: long-press 0.25s ease;
+}
+
+@keyframes long-press {
+  50% { transform: scale(0.97); }
+}
+
+/* ——— появление ——— */
+
+.post.appear,
+.comment.appear,
+.notif.appear,
+.person.appear {
+  animation: appear 0.36s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+@keyframes appear {
+  from { opacity: 0; transform: translateY(12px); }
+}
+
+.heart-burst {
+  position: absolute;
+  z-index: 4;
+  width: 96px;
+  height: 96px;
+  margin: -48px 0 0 -48px;
+  pointer-events: none;
+  animation: heart-burst 0.8s cubic-bezier(0.2, 0.9, 0.3, 1.3) forwards;
+}
+
+.heart-burst svg {
+  width: 100%;
+  height: 100%;
+  fill: var(--like);
+  filter: drop-shadow(0 6px 16px rgba(255, 45, 85, 0.45));
+}
+
+@keyframes heart-burst {
+  0% { transform: scale(0.2); opacity: 0; }
+  25% { transform: scale(1.15); opacity: 1; }
+  45% { transform: scale(0.95); }
+  70% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.1) translateY(-40px); opacity: 0; }
+}
+
+.tab.bounce .icon {
+  animation: tab-bounce 0.35s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+@keyframes tab-bounce {
+  40% { transform: scale(0.82) translateY(1px); }
+}
+
+.comment.swiping .comment-body {
+  transition: none;
+}
+
+.reply-hint {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  margin-top: -14px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.reply-hint .icon {
+  width: 16px;
+  height: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
@@ -348,10 +502,32 @@ a {
   white-space: nowrap;
 }
 
+.segmented {
+  position: relative;
+}
+
+.segmented button {
+  position: relative;
+  z-index: 1;
+}
+
 .segmented button.on {
-  background: var(--card);
   color: var(--text);
+}
+
+.seg-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  border-radius: 9px;
+  background: var(--card);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s cubic-bezier(0.3, 1.2, 0.4, 1), width 0.3s cubic-bezier(0.3, 1.2, 0.4, 1);
+}
+
+.segmented button:active {
+  transform: none;
 }
 
 .segmented.wide {
@@ -431,6 +607,8 @@ a {
 }
 
 .post {
+  position: relative;
+  touch-action: pan-y;
   margin: 6px 10px;
   padding: 14px 14px 6px;
   border-radius: var(--radius);
@@ -443,9 +621,6 @@ a {
   transition: transform 0.12s;
 }
 
-.post.tappable:active {
-  transform: scale(0.992);
-}
 
 .post.closed .post-text,
 .post.closed .media {
@@ -765,7 +940,11 @@ a {
   font-weight: 500;
 }
 
-.poll-option:not(.voted):active {
+.poll-hint {
+  opacity: 0.8;
+}
+
+.poll-option:active {
   background: var(--soft);
 }
 
@@ -776,6 +955,10 @@ a {
   bottom: 0;
   background: var(--soft);
   transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.poll-option.mine {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .poll-option.mine .poll-bar {
@@ -1131,6 +1314,8 @@ a {
 }
 
 .comment {
+  position: relative;
+  touch-action: pan-y;
   display: flex;
   gap: 10px;
   padding: 12px 14px 6px;
@@ -1690,17 +1875,43 @@ a {
 }
 
 .onb-logo {
-  width: 72px;
-  height: 72px;
+  width: 76px;
+  height: 76px;
   margin: 0 auto 14px;
-  display: grid;
-  place-items: center;
   border-radius: 22px;
-  color: #fff;
-  font-size: 38px;
-  font-weight: 800;
-  background: linear-gradient(145deg, #5b8cff, #7a5cff 60%, #c95cff);
-  box-shadow: 0 12px 34px rgba(91, 110, 255, 0.35);
+  box-shadow: 0 12px 34px rgba(70, 90, 255, 0.35);
+  animation: onb-logo 0.6s cubic-bezier(0.3, 1.4, 0.5, 1) both;
+}
+
+@keyframes onb-logo {
+  from { transform: scale(0.6) rotate(-8deg); opacity: 0; }
+}
+
+.logo {
+  display: inline-flex;
+  flex: none;
+}
+
+.logo svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.onb-logo .logo-stroke {
+  stroke-dasharray: 90;
+  stroke-dashoffset: 90;
+  animation: splash-draw 0.9s 0.2s cubic-bezier(0.6, 0, 0.2, 1) forwards;
+}
+
+@keyframes splash-draw {
+  to { stroke-dashoffset: 0; }
 }
 
 .onb-hero h1 {

@@ -194,12 +194,19 @@ await step("лайк, повторный лайк, снятие", async () => {
   assert.equal(r.likes, 1);
 });
 
-await step("опрос: один голос", async () => {
+await step("опрос: голос, переголосовать, отменить", async () => {
   let r = await boris.post(`/api/posts/${pollId}/vote`, { option: 1 });
   assert.deepEqual(r.poll.counts, [0, 1, 0]);
   r = await boris.post(`/api/posts/${pollId}/vote`, { option: 0 });
-  assert.deepEqual(r.poll.counts, [0, 1, 0]);
-  assert.equal(r.poll.mine, 1);
+  assert.deepEqual(r.poll.counts, [1, 0, 0], "переголосовал — старый голос ушёл");
+  assert.equal(r.poll.mine, 0);
+  r = await vera.post(`/api/posts/${pollId}/vote`, { option: 2 });
+  assert.equal(r.poll.total, 2);
+  r = await boris.post(`/api/posts/${pollId}/vote`, { option: null });
+  assert.deepEqual(r.poll.counts, [0, 0, 1], "отменил голос");
+  assert.equal(r.poll.mine, null);
+  const bad = await boris.post(`/api/posts/${pollId}/vote`, { option: 7 });
+  assert.equal(bad.status, 400);
 });
 
 let commentId;

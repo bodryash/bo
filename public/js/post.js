@@ -3,7 +3,8 @@ import { postCard, reportSheet } from "./card.js";
 import { LIMITS, studentLine } from "./data.js";
 import { errorState, skeleton } from "./feed.js";
 import { back, go } from "./router.js";
-import { haptic } from "./tg.js";
+import { pressable } from "./gestures.js";
+import { haptic, vibrate } from "./tg.js";
 import { actionSheet, ago, autoGrow, avatar, confirmDialog, emptyState, h, icon, richText, toast } from "./ui.js";
 
 /** Экран поста: сам пост, комментарии и поле ответа снизу. */
@@ -43,7 +44,9 @@ export function postScreen({ id, comment }) {
       h("div.comments-title", comments.length ? `Комментарии · ${comments.length}` : "Комментарии"),
       list
     );
-    list.replaceChildren(...(comments.length ? comments.map(commentEl) : [h("div.comments-empty", "Будьте первым — напишите, что думаете")]));
+    list.replaceChildren(
+      ...(comments.length ? comments.map((c, i) => commentEl(c, i)) : [h("div.comments-empty", "Будьте первым — напишите, что думаете")])
+    );
     if (post.hidden === 0) el.append(composer.el);
     composer.sync();
 
@@ -56,12 +59,13 @@ export function postScreen({ id, comment }) {
     }
   }
 
-  function commentEl(c) {
+  function commentEl(c, index = 0) {
     const name = c.anonymous ? (c.anon_no === 0 ? "Автор поста" : `Аноним ${c.anon_no}`) : c.author.name;
     const parent = c.reply_to ? byId.get(c.reply_to) : null;
     const node = h(
-      "div.comment" + (c.mine ? ".mine" : ""),
-      { dataset: { id: c.id } },
+      "div.comment.appear" + (c.mine ? ".mine" : ""),
+      { dataset: { id: c.id }, style: { "--i": Math.min(index, 10) } },
+      h("div.reply-hint", icon("reply")),
       h("button.comment-avatar", { onclick: () => c.author && go(`/u/${c.author.id}`), disabled: !c.author }, avatar(c.author, 34)),
       h(
         "div.comment-body",
@@ -98,7 +102,64 @@ export function postScreen({ id, comment }) {
         )
       )
     );
+    pressable(node, { onLongPress: () => commentMenu(c, node) });
+    if (post.hidden === 0) swipeToReply(node, () => setReply(c));
     return node;
+  }
+
+  /**
+   * Свайп комментария вправо — ответить на него, как в Telegram: тело
+   * едет за пальцем, появляется стрелка, на пороге — щелчок вибрации.
+   */
+  function swipeToReply(node, onReply) {
+    const body = node.querySelector(".comment-body");
+    const avatarEl = node.querySelector(".comment-avatar");
+    const hint = node.querySelector(".reply-hint");
+    const THRESHOLD = 64;
+    let start = null;
+    let active = false;
+    let armed = false;
+    node.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button, a")) return;
+      start = { x: e.clientX, y: e.clientY, id: e.pointerId };
+      active = armed = false;
+    });
+    node.addEventListener("pointermove", (e) => {
+      if (!start || e.pointerId !== start.id) return;
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (!active) {
+        if (Math.abs(dx) < 10) return;
+        if (Math.abs(dy) > Math.abs(dx) || dx < 0) return (start = null);
+        active = true;
+        node.setPointerCapture?.(e.pointerId);
+        node.classList.add("swiping");
+      }
+      const shift = Math.min(dx, THRESHOLD * 1.6);
+      body.style.transform = avatarEl.style.transform = `translateX(${shift}px)`;
+      const ready = dx > THRESHOLD;
+      hint.style.opacity = String(Math.min(1, dx / THRESHOLD));
+      hint.style.transform = `scale(${ready ? 1 : 0.5 + (0.5 * dx) / THRESHOLD})`;
+      if (ready !== armed) {
+        armed = ready;
+        if (ready) vibrate("light");
+      }
+    });
+    const end = () => {
+      if (!start) return;
+      start = null;
+      if (!active) return;
+      active = false;
+      node.classList.remove("swiping");
+      body.style.transition = avatarEl.style.transition = "transform .25s cubic-bezier(.2,.9,.3,1.2)";
+      body.style.transform = avatarEl.style.transform = "";
+      hint.style.opacity = "0";
+      hint.style.transform = "scale(.5)";
+      setTimeout(() => (body.style.transition = avatarEl.style.transition = ""), 260);
+      if (armed) onReply();
+    };
+    node.addEventListener("pointerup", end);
+    node.addEventListener("pointercancel", end);
   }
 
   const nameOf = (c) => (c.anonymous ? (c.anon_no === 0 ? "Автор поста" : `Аноним ${c.anon_no}`) : c.author.name);

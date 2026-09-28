@@ -20,7 +20,7 @@ export function notificationsScreen() {
       store.set({ unread: 0 });
       list.replaceChildren(
         ...(data.items.length
-          ? data.items.map(item)
+          ? data.items.map((n, i) => item(n, i))
           : [emptyState("🔔", "Пока тихо", "Когда вам ответят или поставят лайк, это появится здесь.")])
       );
     } catch (err) {
@@ -28,7 +28,7 @@ export function notificationsScreen() {
     }
   }
 
-  function item(n) {
+  function item(n, index = 0) {
     let who;
     let what;
     if (n.kind === "like") {
@@ -43,8 +43,8 @@ export function notificationsScreen() {
     }
     const badge = n.kind === "like" ? "heart" : n.kind === "reply" ? "reply" : "comment";
     return h(
-      "button.notif" + (n.unread ? ".unread" : ""),
-      { onclick: () => go(`/p/${n.post_id}${n.comment_id ? `/c${n.comment_id}` : ""}`) },
+      "button.notif.appear" + (n.unread ? ".unread" : ""),
+      { style: { "--i": Math.min(index, 10) }, onclick: () => go(`/p/${n.post_id}${n.comment_id ? `/c${n.comment_id}` : ""}`) },
       h("div.notif-avatar", avatar(n.actor, 44), h("span.notif-badge.kind-" + n.kind, icon(badge))),
       h(
         "div.notif-body",

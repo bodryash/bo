@@ -12,9 +12,21 @@ import { profileScreen, settingsScreen } from "./profile.js";
 import { currentPath, go, route, setGuard, setInitialPath, start } from "./router.js";
 import { searchScreen } from "./search.js";
 import { haptic, setup, startParam } from "./tg.js";
+import { bump } from "./gestures.js";
 import { h, icon } from "./ui.js";
 
 setup();
+
+// Отклик на любое нажатие: всё, что кнопка, — щёлкает. Если кнопка сама
+// уже вибрировала (выбор, успех), повтор проглотит vibrate().
+document.addEventListener(
+  "click",
+  (e) => {
+    const target = e.target.closest("button, .tappable, a, label.switch");
+    if (target && !target.disabled && !target.closest("[data-silent]")) haptic.tap();
+  },
+  true
+);
 
 const app = document.getElementById("app");
 const screens = h("main.screens");
@@ -85,6 +97,9 @@ function buildTabbar() {
           "aria-label": label || "Новый пост",
           onclick: () => {
             haptic.select();
+            btn.classList.remove("bounce");
+            void btn.offsetWidth;
+            btn.classList.add("bounce");
             go(path);
           },
         },
@@ -97,7 +112,13 @@ function buildTabbar() {
     })
   );
 
+  let shown = store.unread;
   const paintBadge = () => {
+    if (store.unread > shown) {
+      bump(badge);
+      haptic.tap();
+    }
+    shown = store.unread;
     badge.textContent = store.unread > 99 ? "99+" : store.unread ? String(store.unread) : "";
     badge.hidden = !store.unread;
   };

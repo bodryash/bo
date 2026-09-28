@@ -43,13 +43,13 @@ export function searchScreen() {
           h(
             "div.people",
             data.users.map((u) =>
-              h("button.person", { onclick: () => go(`/u/${u.id}`) }, avatar(u, 44), h("div.person-text", h("div.person-name", u.name), h("div.person-sub", studentLine(u))))
+              h("button.person.appear", { onclick: () => go(`/u/${u.id}`) }, avatar(u, 44), h("div.person-text", h("div.person-name", u.name), h("div.person-sub", studentLine(u))))
             )
           )
         );
       }
       if (data.posts.length) {
-        results.append(h("div.section-label.pad", "Посты"), ...data.posts.map((p) => postCard(p, { showScope: true })));
+        results.append(h("div.section-label.pad", "Посты"), ...data.posts.map((p, i) => postCard(p, { showScope: true, index: i })));
       }
       if (!data.users.length && !data.posts.length) results.append(emptyState("🔍", "Ничего не нашлось", "Попробуйте другое слово."));
     } catch (err) {

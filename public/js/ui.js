@@ -334,3 +334,42 @@ export function confirmDialog(message, { ok = "Удалить", danger = true } 
     );
   });
 }
+
+/**
+ * Ползунок переключателя: переезжает под выбранный вариант, а не
+ * перекрашивает кнопки. Вызывать после каждой отрисовки переключателя.
+ */
+export function syncThumb(seg) {
+  let thumb = seg.querySelector(":scope > .seg-thumb");
+  if (!thumb) {
+    thumb = h("span.seg-thumb");
+    seg.prepend(thumb);
+  }
+  const on = seg.querySelector(":scope > button.on");
+  if (!on) return;
+  const place = () => {
+    thumb.style.width = `${on.offsetWidth}px`;
+    thumb.style.transform = `translateX(${on.offsetLeft - 3}px)`;
+  };
+  if (!thumb.dataset.ready) {
+    thumb.style.transition = "none";
+    requestAnimationFrame(() => {
+      place();
+      requestAnimationFrame(() => {
+        thumb.style.transition = "";
+        thumb.dataset.ready = "1";
+      });
+    });
+  } else place();
+}
+
+/** Знак Потока: «П», у которой правая нога утекает потоком. */
+export function logo(size = 32) {
+  const el = document.createElement("span");
+  el.className = "logo";
+  el.style.width = el.style.height = `${size}px`;
+  el.innerHTML =
+    '<svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3d7bff"/><stop offset="1" stop-color="#5a2dff"/></linearGradient></defs>' +
+    '<rect width="64" height="64" rx="18" fill="url(#lg)"/><path class="logo-stroke" d="M17 48V26.5C17 21.3 21.3 17 26.5 17h8C39.7 17 44 21.3 44 26.5V35c0 6.5 4 10.2 10 11" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  return el;
+}

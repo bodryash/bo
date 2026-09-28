@@ -75,19 +75,34 @@ export function backButton(onClick) {
   }
 }
 
+/**
+ * Виброотклик Telegram. select — щелчок при выборе (вкладка, рубрика),
+ * light/medium/heavy — нажатие и жест, success/error/warning — итог
+ * действия. Один жест часто зовёт отклик дважды (кнопка и общий
+ * обработчик нажатий) — повтор в течение 60 мс глотаем, кроме итогов.
+ */
+let lastBuzz = 0;
+export function vibrate(kind = "light") {
+  if (!insideTelegram || !supports("6.1")) return;
+  const outcome = kind === "success" || kind === "error" || kind === "warning";
+  const t = performance.now();
+  if (!outcome && t - lastBuzz < 60) return;
+  lastBuzz = t;
+  try {
+    if (kind === "select") tg.HapticFeedback.selectionChanged();
+    else if (outcome) tg.HapticFeedback.notificationOccurred(kind);
+    else tg.HapticFeedback.impactOccurred(kind);
+  } catch {}
+}
+
 export const haptic = {
-  tap() {
-    if (supports("6.1")) tg.HapticFeedback.impactOccurred("light");
-  },
-  select() {
-    if (supports("6.1")) tg.HapticFeedback.selectionChanged();
-  },
-  success() {
-    if (supports("6.1")) tg.HapticFeedback.notificationOccurred("success");
-  },
-  error() {
-    if (supports("6.1")) tg.HapticFeedback.notificationOccurred("error");
-  },
+  tap: () => vibrate("light"),
+  press: () => vibrate("medium"),
+  heavy: () => vibrate("heavy"),
+  select: () => vibrate("select"),
+  success: () => vibrate("success"),
+  error: () => vibrate("error"),
+  warning: () => vibrate("warning"),
 };
 
 export function openLink(url) {

@@ -13,12 +13,13 @@
   .splash.gone { opacity: 0; pointer-events: none; }
   .splash small { font: 500 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; letter-spacing: 0; color: #8a8f98; }
   .splash-mark {
-    width: 64px; height: 64px; border-radius: 20px;
-    display: grid; place-items: center; color: #fff; font-size: 34px;
-    background: linear-gradient(145deg, #5b8cff, #7a5cff 60%, #c95cff);
-    box-shadow: 0 10px 30px rgba(91, 110, 255, .35);
+    width: 72px; height: 72px; border-radius: 20px;
+    box-shadow: 0 12px 32px rgba(70, 90, 255, .35);
     animation: splash-pulse 1.4s ease-in-out infinite;
   }
+  .splash-mark svg { display: block; }
+  .splash-stroke { stroke-dasharray: 90; stroke-dashoffset: 90; animation: splash-draw .9s .1s cubic-bezier(.6,0,.2,1) forwards; }
+  @keyframes splash-draw { to { stroke-dashoffset: 0; } }
   @keyframes splash-pulse { 50% { transform: scale(.94); } }
   @media (prefers-reduced-motion: reduce) { .splash-mark { animation: none; } }
   @media (prefers-color-scheme: dark) {
@@ -29,7 +30,7 @@
   #app { top: env(safe-area-inset-top, 0px) !important; }
 </style>
 <link rel="stylesheet" href="public/css/app.css">
-<div class="splash"><div class="splash-mark">П</div>Поток<small>Запускаем сервер прямо в браузере…</small></div>
+<div class="splash"><div class="splash-mark"><svg viewBox="0 0 64 64" width="72" height="72"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3d7bff"/><stop offset="1" stop-color="#5a2dff"/></linearGradient></defs><rect width="64" height="64" rx="18" fill="url(#sg)"/><path class="splash-stroke" d="M17 48V26.5C17 21.3 21.3 17 26.5 17h8C39.7 17 44 21.3 44 26.5V35c0 6.5 4 10.2 10 11" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>Поток<small>Запускаем сервер прямо в браузере…</small></div>
 <div id="app"></div>
 <script src="https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/sql-asm.js"></script>
 <script type="module" src="demo/boot.js"></script>

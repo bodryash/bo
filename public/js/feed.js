@@ -2,8 +2,9 @@ import { api, store } from "./api.js";
 import { myFacultyShort, postCard } from "./card.js";
 import { FACULTY, RUBRICS } from "./data.js";
 import { go } from "./router.js";
+import { slideSwap, swipeX } from "./gestures.js";
 import { haptic } from "./tg.js";
-import { emptyState, h, icon, spinner } from "./ui.js";
+import { emptyState, h, icon, logo, spinner, syncThumb } from "./ui.js";
 
 const PREFS_KEY = "feedPrefs";
 
@@ -62,6 +63,7 @@ export function feedScreen({ fixedScope = null } = {}) {
                 haptic.select();
                 prefs.scope = s;
                 changed();
+                slideSwap(list, s === "msu" ? 1 : -1);
               },
             },
             s === "fac" ? myFacultyShort() : "Весь МГУ"
@@ -73,7 +75,7 @@ export function feedScreen({ fixedScope = null } = {}) {
     "div.topbar",
     fixedScope
       ? h("div.topbar-title", h("div.brand-small", FACULTY[fixedScope]?.short || ""), h("div.topbar-sub", FACULTY[fixedScope]?.name || ""))
-      : h("div.brand", "Поток"),
+      : h("div.brand", logo(30), "Поток"),
     segmented
   );
 
@@ -84,15 +86,7 @@ export function feedScreen({ fixedScope = null } = {}) {
       (chipBtns[r.id] = h(
         "button.chip",
         {
-          onclick: () => {
-            if (prefs.rubric === r.id) return;
-            haptic.select();
-            prefs.rubric = r.id;
-            // У событий свой порядок: ближайшие сверху.
-            prefs.sort = r.id === "event" ? "soon" : prefs.sort === "soon" ? "new" : prefs.sort;
-            changed();
-            chipBtns[r.id].scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
-          },
+          onclick: () => selectRubric(r.id, 0),
         },
         r.emoji ? r.emoji + " " : "",
         r.name
@@ -127,9 +121,37 @@ export function feedScreen({ fixedScope = null } = {}) {
   function paintControls() {
     for (const [s, b] of Object.entries(scopeBtns)) b.classList.toggle("on", prefs.scope === s);
     if (scopeBtns.fac) scopeBtns.fac.textContent = myFacultyShort();
+    if (segmented) syncThumb(segmented);
     for (const [r, b] of Object.entries(chipBtns)) b.classList.toggle("on", prefs.rubric === r);
     renderSort();
   }
+
+  const RUBRIC_ORDER = ["", ...RUBRICS.map((r) => r.id)];
+
+  /** dir: 1 — пришли свайпом влево, -1 — вправо, 0 — касанием. */
+  function selectRubric(id, dir) {
+    if (prefs.rubric === id) return;
+    haptic.select();
+    const from = RUBRIC_ORDER.indexOf(prefs.rubric);
+    prefs.rubric = id;
+    // У событий свой порядок: ближайшие сверху.
+    prefs.sort = id === "event" ? "soon" : prefs.sort === "soon" ? "new" : prefs.sort;
+    changed();
+    slideSwap(list, dir || (RUBRIC_ORDER.indexOf(id) > from ? 1 : -1));
+    chipBtns[id].scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+  }
+
+  // Свайп по ленте — соседняя рубрика, как листание дней в расписании.
+  swipeX(list, {
+    canStart: (e) => !e.target.closest(".poll, .media, .sheet"),
+    onSwipe: (dir, target) => {
+      const i = RUBRIC_ORDER.indexOf(prefs.rubric) + dir;
+      if (i < 0 || i >= RUBRIC_ORDER.length) return false;
+      target.style.transition = "none";
+      target.style.transform = "";
+      selectRubric(RUBRIC_ORDER[i], dir);
+    },
+  });
 
   function changed() {
     if (!fixedScope) savePrefs(prefs);
@@ -158,7 +180,7 @@ export function feedScreen({ fixedScope = null } = {}) {
       const data = await api.get(query(reset ? null : next));
       if (gen !== generation) return; // пока грузилось, переключили рубрику
       if (reset) list.replaceChildren();
-      for (const post of data.posts) list.append(postCard(post));
+      data.posts.forEach((post, i) => list.append(postCard(post, { index: i })));
       next = data.next;
       if (reset && !data.posts.length) list.append(empty());
       sentinel.replaceChildren(!next && list.querySelector(".post") ? h("div.end", "Это всё — дальше пусто") : "");
@@ -222,6 +244,7 @@ export function feedScreen({ fixedScope = null } = {}) {
     el,
     onShow() {
       if (scopeBtns.fac) scopeBtns.fac.textContent = myFacultyShort();
+      if (segmented) syncThumb(segmented);
     },
     onReselect() {
       el.scrollTo({ top: 0, behavior: "smooth" });

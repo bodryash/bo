@@ -3,7 +3,7 @@ import { FACULTY, LEVEL } from "./data.js";
 import { courseChips, levelChips, pickFaculty } from "./profile.js";
 import { go } from "./router.js";
 import { haptic } from "./tg.js";
-import { avatar, h, icon, toast } from "./ui.js";
+import { avatar, h, icon, logo, toast } from "./ui.js";
 
 /**
  * Первый вход: факультет, ступень, курс. Без этого не понять, какую ленту
@@ -56,7 +56,7 @@ export function onboardingScreen() {
   el.append(
     h(
       "div.onb-hero",
-      h("div.onb-logo", "П"),
+      h("div.onb-logo", logo(76)),
       h("h1", "Поток"),
       h("p", "Студенческая соцсеть МГУ: лента факультета, «Подслушано», барахолка, события и жильё.")
     ),

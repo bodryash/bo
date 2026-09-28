@@ -328,16 +328,26 @@ export async function likePost(env, user, id, body, ctx) {
   return { liked: !!body.on, likes };
 }
 
-/** Голос один и без переголосования — как в опросах Telegram. */
+/**
+ * Голос в опросе. Можно переголосовать (другой вариант) и отменить
+ * (option: null) — как в опросах Telegram с кнопкой «Отменить голос».
+ */
 export async function votePost(env, user, id, body) {
   const row = await loadPost(env, id);
   if (!row.poll || row.hidden) fail(400, "Здесь нет опроса");
-  const option = Number(body.option);
-  const options = JSON.parse(row.poll);
-  if (!Number.isInteger(option) || option < 0 || option >= options.length) fail(400, "Нет такого варианта");
-  await env.DB.prepare("INSERT OR IGNORE INTO votes (post_id, user_id, option) VALUES (?, ?, ?)")
-    .bind(id, user.id, option)
-    .run();
+  if (body.option === null || body.option === undefined) {
+    await env.DB.prepare("DELETE FROM votes WHERE post_id = ? AND user_id = ?").bind(id, user.id).run();
+  } else {
+    const option = Number(body.option);
+    const options = JSON.parse(row.poll);
+    if (!Number.isInteger(option) || option < 0 || option >= options.length) fail(400, "Нет такого варианта");
+    await env.DB.prepare(
+      `INSERT INTO votes (post_id, user_id, option) VALUES (?, ?, ?)
+       ON CONFLICT(post_id, user_id) DO UPDATE SET option = excluded.option`
+    )
+      .bind(id, user.id, option)
+      .run();
+  }
   const [post] = await hydrate(env, [row], user);
   return { poll: post.poll };
 }
