@@ -42,56 +42,48 @@
 
 ## Первый запуск в бою
 
-Нужен аккаунт Cloudflare и бот от @BotFather. Бесплатного тарифа хватает,
-банковская карта не нужна: фото хранятся в Telegram (см. «Фото» ниже).
+Выкладку делает GitHub Actions (`.github/workflows/deploy.yml`) при каждом
+push в ветку `potok`. Сценарий создаёт базу, если её нет, обновляет
+таблицы, выкладывает воркер и настраивает бота: вебхук, кнопку «Поток»
+в меню, описание и команды. Руками нужно сделать то, что требует вашего
+аккаунта, и только один раз:
 
-```bash
-npm install
+1. **Бот.** @BotFather → `/newbot` → сохраните токен. Откройте нового бота
+   и нажмите **Start**, иначе он не сможет вам писать.
+2. **Токен Cloudflare.** dash.cloudflare.com → My Profile → API Tokens →
+   Create Token → шаблон **Edit Cloudflare Workers**. Добавьте строку
+   **Account → D1 → Edit**, затем Continue → Create. Сохраните токен.
+3. **Секреты в GitHub.** Репозиторий → Settings → Secrets and variables →
+   Actions → New repository secret. Нужны четыре:
 
-# 1. База
-npx wrangler d1 create potok          # id из вывода — в wrangler.toml, database_id
-npm run db:remote                     # создать таблицы
+   | Имя | Что вставить |
+   | --- | --- |
+   | `CLOUDFLARE_API_TOKEN` | токен из шага 2 |
+   | `CLOUDFLARE_ACCOUNT_ID` | id аккаунта: Workers & Pages → справа «Account ID». Если аккаунт один, можно пропустить |
+   | `BOT_TOKEN` | токен из шага 1 |
+   | `ADMIN_IDS` | ваш id в Telegram (у @userinfobot); нескольких модераторов — через запятую |
 
-# 2. Секреты: токен бота и секрет вебхука (любая длинная случайная строка)
-npx wrangler secret put BOT_TOKEN
-npx wrangler secret put WEBHOOK_SECRET
+4. **Запуск.** Actions → «Выложить Поток» → последний запуск → **Re-run all
+   jobs**. Или просто сделайте push. В итоге запуска будет адрес
+   приложения.
+5. **Канал для фото** (шаг «Фото» ниже).
 
-# 3. Выложить
-npm run deploy                        # напечатает адрес вида https://potok.<вы>.workers.dev
-```
+Короткое имя приложения из `/newapp` в @BotFather не обязательно: без него
+ссылка «поделиться» открывает пост через `/start` в боте. Если хотите
+ссылки вида `t.me/бот/app?startapp=p12`, сделайте `/newapp` с адресом
+приложения и укажите короткое имя в `APP_NAME` в `wrangler.toml`.
 
-Дальше в `wrangler.toml`, раздел `[vars]`:
+Выложить вручную, без GitHub: `npx wrangler d1 create potok` (id — в
+`wrangler.toml`), `npm run db:remote`, `npm run deploy`,
+`npx wrangler secret put BOT_TOKEN`. Потом один раз настройте бота:
+`curl -X POST <адрес>/setup -H "authorization: Bearer <токен бота>"`.
 
-- `ADMIN_IDS` — ваш id в Telegram (его покажет @userinfobot). Можно несколько через запятую.
-- `BOT_USERNAME` — имя бота без @.
-- `APP_NAME` — короткое имя приложения из шага 5.
+### Канал для фото
 
-После правки ещё раз выполните `npm run deploy`.
-
-### Бот
-
-4. Вебхук (подставить токен, адрес воркера и тот же секрет):
-
-   ```bash
-   curl "https://api.telegram.org/bot<ТОКЕН>/setWebhook" \
-     -d url=https://potok.<вы>.workers.dev/tg \
-     -d secret_token=<WEBHOOK_SECRET> \
-     -d 'allowed_updates=["message","callback_query","my_chat_member"]'
-   ```
-
-   Без секрета воркер отвечает 403: иначе кто угодно мог бы прислать ему
-   поддельное «нажатие» кнопки модератора.
-
-5. В @BotFather:
-   - `/newapp` → выбрать бота → адрес воркера → короткое имя, например `app`.
-     Оно нужно для ссылок «поделиться» (`t.me/бот/app?startapp=p12`).
-   - `/setmenubutton` → адрес воркера → «Поток». Кнопка слева от поля ввода
-     открывает приложение.
-
-6. Фото: создайте **закрытый канал** (например, «Поток — фото») и добавьте
-   туда бота **администратором** с правом публиковать сообщения. Добавлять
-   должен модератор из `ADMIN_IDS`. Бот сам запомнит канал и напишет вам
-   «Готово». Проверить можно командой `/media`.
+Создайте **закрытый** канал (например, «Поток — фото») и добавьте туда бота
+**администратором** с правом публиковать сообщения. Добавлять должен
+модератор из `ADMIN_IDS`. Бот сам запомнит канал и напишет «Готово».
+Проверить можно командой `/media`.
 
 ## Фото
 
@@ -175,7 +167,7 @@ npm run deploy                        # напечатает адрес вида
 `.dev.vars.example`.
 
 ```bash
-cp .dev.vars.example .dev.vars   # тестовый токен, секрет, ADMIN_IDS, адрес имитации
+cp .dev.vars.example .dev.vars   # тестовый токен, ADMIN_IDS, адрес имитации
 npm run mock                     # имитация Telegram, окно 1
 npm run db:local                 # таблицы в локальной базе
 npm run dev                      # http://127.0.0.1:8787, окно 2
@@ -184,7 +176,7 @@ npm run dev                      # http://127.0.0.1:8787, окно 2
 В третьем окне:
 
 ```bash
-npm run smoke                    # 22 сквозные проверки: API, фото через Telegram, сообщения бота
+npm run smoke                    # 23 сквозные проверки: API, фото через Telegram, бот, самонастройка
 node tools/seed.mjs              # 6 человек, 8 постов, лайки, опрос, комментарии
 ```
 

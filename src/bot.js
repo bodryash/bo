@@ -15,6 +15,7 @@ import {
 } from "./moderation.js";
 import { mediaChat, onChannelMember } from "./media.js";
 import { appUrl } from "./notify.js";
+import { webhookSecret } from "./setup.js";
 import { displayName, userSearchKey } from "./users.js";
 import { DAY, callTelegram, escapeHtml, isAdminTg, now, safeEqual } from "./util.js";
 
@@ -22,7 +23,7 @@ export async function handleUpdate(env, request) {
   const secret = request.headers.get("x-telegram-bot-api-secret-token") || "";
   // Без секрета любой, кто знает адрес воркера, мог бы слать поддельные
   // обновления — например, «нажатия» модераторских кнопок.
-  if (!env.WEBHOOK_SECRET || !safeEqual(secret, env.WEBHOOK_SECRET)) {
+  if (!env.BOT_TOKEN || !safeEqual(secret, await webhookSecret(env))) {
     return new Response("forbidden", { status: 403 });
   }
 

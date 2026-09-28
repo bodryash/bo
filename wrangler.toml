@@ -26,9 +26,9 @@ APP_URL = ""
 # запоминает канал сам, когда модератор добавляет его туда администратором.
 MEDIA_CHAT_ID = ""
 
-# Секреты не лежат в файлах, задаются один раз:
-#   npx wrangler secret put BOT_TOKEN
-#   npx wrangler secret put WEBHOOK_SECRET
+# Токен бота не лежит в файлах. Его кладёт сценарий выкладки
+# (.github/workflows/deploy.yml) или вручную: npx wrangler secret put BOT_TOKEN
+# Секрет вебхука выводится из токена сам; задать свой — WEBHOOK_SECRET.
 
 [[d1_databases]]
 binding = "DB"

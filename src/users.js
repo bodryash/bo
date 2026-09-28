@@ -1,4 +1,5 @@
 import { FACULTY, LEVEL, LIMITS } from "../public/js/data.js";
+import { botUsername } from "./setup.js";
 import { cleanText, charCount, fail, isAdminTg, now, searchKey, verifyInitData } from "./util.js";
 
 // Имя и аватар обновляем не на каждом запросе, а если что-то поменялось или
@@ -130,7 +131,7 @@ export async function getMe(env, user, url) {
     me: selfView(user),
     unread,
     config: {
-      bot: env.BOT_USERNAME || null,
+      bot: (await botUsername(env)) || null,
       app: env.APP_NAME || null,
       origin: url.origin,
     },

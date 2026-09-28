@@ -8,18 +8,21 @@
  */
 
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { devToken, signInitData } from "../tools/sign.mjs";
 
 const BASE = process.env.BASE || "http://127.0.0.1:8787";
 const MOCK = process.env.MOCK || "http://127.0.0.1:8790";
 const TOKEN = devToken();
 const CHANNEL = -1005550001;
+// Секрет вебхука в бою выводится из токена — так же и здесь.
+const SECRET = createHmac("sha256", TOKEN).update("potok-webhook").digest("hex").slice(0, 48);
 
 /** Обновление от Telegram на вебхук бота — как будто прислал сам Telegram. */
 const botUpdate = (update) =>
   fetch(BASE + "/tg", {
     method: "POST",
-    headers: { "x-telegram-bot-api-secret-token": "devsecret", "content-type": "application/json" },
+    headers: { "x-telegram-bot-api-secret-token": SECRET, "content-type": "application/json" },
     body: JSON.stringify({ update_id: Date.now(), ...update }),
   });
 
@@ -312,6 +315,27 @@ await step("жалобы: три — и пост скрыт", async () => {
   assert.equal(own.post.hidden, 1, "автор видит, что пост скрыт");
 });
 
+await step("бот настраивает себя сам: вебхук, кнопка меню, ник", async () => {
+  const anon = await fetch(BASE + "/setup", { method: "POST" });
+  assert.equal(anon.status, 403, "без токена бота — нельзя");
+  await fetch(MOCK + "/__reset");
+  const res = await fetch(BASE + "/setup", { method: "POST", headers: { authorization: `Bearer ${TOKEN}` } });
+  const data = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(data));
+  assert.equal(data.steps.bot, "@potok_test_bot");
+  const calls = await telegramCalls();
+  const hook = calls.find((c) => c.method === "setWebhook");
+  assert.equal(hook.url, BASE + "/tg");
+  assert.equal(hook.secret_token, SECRET);
+  const menu = calls.find((c) => c.method === "setChatMenuButton");
+  assert.equal(menu.menu_button.web_app.url, BASE + "/");
+  assert.ok(calls.some((c) => c.method === "setMyCommands" && c.scope?.chat_id === 1001), "модератору — его команды");
+  const me = await anya.get("/api/me");
+  assert.equal(me.config.bot, "potok_test_bot", "ник бота узнан сам — для ссылок «поделиться»");
+  const wrong = await fetch(BASE + "/tg", { method: "POST", headers: { "x-telegram-bot-api-secret-token": "devsecret" }, body: "{}" });
+  assert.equal(wrong.status, 403, "старый ручной секрет больше не подходит");
+});
+
 await step("бот: /media показывает, где фото", async () => {
   await fetch(MOCK + "/__reset");
   await botUpdate({ message: { message_id: 2, chat: { id: 1001, type: "private" }, from: { id: 1001, first_name: "M" }, text: "/media" } });
@@ -324,7 +348,7 @@ await step("бот: секрет вебхука и возврат модерат
   assert.equal(noSecret.status, 403);
   const res = await fetch(BASE + "/tg", {
     method: "POST",
-    headers: { "x-telegram-bot-api-secret-token": "devsecret", "content-type": "application/json" },
+    headers: { "x-telegram-bot-api-secret-token": SECRET, "content-type": "application/json" },
     body: JSON.stringify({
       update_id: 1,
       callback_query: { id: "1", from: { id: 1001, first_name: "Модератор" }, data: `m:ok:p:${confessId}` },
@@ -336,7 +360,7 @@ await step("бот: секрет вебхука и возврат модерат
 
   const notAdmin = await fetch(BASE + "/tg", {
     method: "POST",
-    headers: { "x-telegram-bot-api-secret-token": "devsecret", "content-type": "application/json" },
+    headers: { "x-telegram-bot-api-secret-token": SECRET, "content-type": "application/json" },
     body: JSON.stringify({
       update_id: 2,
       callback_query: { id: "2", from: { id: 42, first_name: "Хитрец" }, data: `m:del:p:${talkId}` },
@@ -368,7 +392,7 @@ await step("бан через бота запрещает писать", async (
   const me = await gleb.get("/api/me");
   await fetch(BASE + "/tg", {
     method: "POST",
-    headers: { "x-telegram-bot-api-secret-token": "devsecret", "content-type": "application/json" },
+    headers: { "x-telegram-bot-api-secret-token": SECRET, "content-type": "application/json" },
     body: JSON.stringify({
       update_id: 3,
       message: { message_id: 1, chat: { id: 1001, type: "private" }, from: { id: 1001, first_name: "M" }, text: `/ban №${me.me.id} 3 спам` },

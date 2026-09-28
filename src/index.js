@@ -13,6 +13,7 @@ import { cleanupOrphans, serveImage, upload } from "./media.js";
 import { report } from "./moderation.js";
 import { listNotifications } from "./notify.js";
 import { closePost, createPost, deletePost, feed, getPostView, likePost, search, votePost } from "./posts.js";
+import { checkWebhook, handleSetup } from "./setup.js";
 import { getMe, getProfile, updateMe, viewer } from "./users.js";
 import { DAY, HttpError, json, now, readJson } from "./util.js";
 
@@ -79,15 +80,25 @@ export default {
       return serveImage(env, request, url.pathname.slice(5), ctx);
     }
     if (url.pathname === "/tg" && request.method === "POST") return handleUpdate(env, request);
+    if (url.pathname === "/setup" && request.method === "POST") {
+      try {
+        return json(await handleSetup(request, env, url));
+      } catch (error) {
+        if (error instanceof HttpError) return json({ error: error.message }, error.status);
+        console.log("setup error", error?.stack || error);
+        return json({ error: String(error?.message || error) }, 500);
+      }
+    }
     return env.ASSETS.fetch(request);
   },
 
-  /** Раз в час: сироты-фото и старые уведомления. */
+  /** Раз в час: сироты-фото, старые уведомления и проверка вебхука. */
   async scheduled(event, env, ctx) {
     ctx.waitUntil(
       Promise.all([
         cleanupOrphans(env),
         env.DB.prepare("DELETE FROM notifications WHERE created_at < ?").bind(now() - 60 * DAY).run(),
+        checkWebhook(env),
       ])
     );
   },

@@ -70,6 +70,15 @@ createServer(async (req, res) => {
     });
   }
 
+  if (method === "getMe") {
+    return send(res, 200, { ok: true, result: { id: 777, is_bot: true, first_name: "Поток", username: "potok_test_bot" } });
+  }
+
+  if (method === "getWebhookInfo") {
+    const last = [...calls].reverse().find((c) => c.method === "setWebhook");
+    return send(res, 200, { ok: true, result: { url: last?.url || "", pending_update_count: 0 } });
+  }
+
   if (method === "getFile") {
     const path = `documents/${params.file_id}`;
     if (!files.has(path)) return send(res, 400, { ok: false, description: "Bad Request: invalid file_id" });

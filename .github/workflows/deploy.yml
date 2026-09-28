@@ -1,0 +1,126 @@
+name: Выложить Поток
+
+# Каждый push в ветку potok выкладывает Поток в Cloudflare: создаёт базу,
+# если её ещё нет, обновляет таблицы, выкладывает воркер и настраивает
+# бота (вебхук, кнопка меню, описание). Руками — только секреты ниже,
+# один раз: Settings → Secrets and variables → Actions → New repository secret.
+#
+#   CLOUDFLARE_API_TOKEN   токен Cloudflare: шаблон «Edit Cloudflare Workers» + право D1: Edit
+#   CLOUDFLARE_ACCOUNT_ID  id аккаунта Cloudflare (можно не задавать, если аккаунт один)
+#   BOT_TOKEN              токен бота из @BotFather
+#   ADMIN_IDS              id модераторов в Telegram через запятую (ваш — у @userinfobot)
+
+on:
+  push:
+    branches: [potok]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-potok
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      ADMIN_IDS: ${{ secrets.ADMIN_IDS }}
+
+    steps:
+      # Без секретов выкладывать нечего — вместо красной ошибки пишем в
+      # итог запуска, чего не хватает.
+      - name: Секреты на месте?
+        id: check
+        run: |
+          missing=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -n "$BOT_TOKEN" ] || missing="$missing BOT_TOKEN"
+          [ -n "$ADMIN_IDS" ] || missing="$missing ADMIN_IDS"
+          if [ -n "$missing" ]; then
+            {
+              echo "### Поток не выложен: не хватает секретов"
+              echo
+              echo "Добавьте в Settings → Secrets and variables → Actions:$missing"
+              echo
+              echo "Потом перезапустите этот запуск (Re-run all jobs)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Зависимости
+        if: steps.check.outputs.ready == 'true'
+        run: npm ci
+
+      - name: База D1
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          find_db() {
+            npx wrangler d1 list --json | node -e '
+              let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+                const db = JSON.parse(s).find((d) => d.name === "potok");
+                process.stdout.write(db ? db.uuid : "");
+              });'
+          }
+          id=$(find_db)
+          if [ -z "$id" ]; then
+            npx wrangler d1 create potok
+            id=$(find_db)
+          fi
+          [ -n "$id" ] || { echo "::error::Не удалось создать базу D1 — проверьте, что у токена есть право D1: Edit"; exit 1; }
+          sed -i "s/^database_id = .*/database_id = \"$id\"/" wrangler.toml
+          # Все таблицы — CREATE ... IF NOT EXISTS: повторный запуск ничего не ломает.
+          npx wrangler d1 execute potok --remote --file schema.sql -y
+
+      - name: Выложить воркер
+        if: steps.check.outputs.ready == 'true'
+        id: deploy
+        run: |
+          npx wrangler deploy --var "ADMIN_IDS:$ADMIN_IDS" | tee deploy.log
+          url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          [ -n "$url" ] || { echo "::error::Не нашёл адрес воркера в выводе deploy"; exit 1; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Токен бота
+        if: steps.check.outputs.ready == 'true'
+        run: printf '%s' "$BOT_TOKEN" | npx wrangler secret put BOT_TOKEN
+
+      # Новый адрес на workers.dev оживает не мгновенно — несколько попыток.
+      - name: Настроить бота
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          url="${{ steps.deploy.outputs.url }}"
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS -X POST "$url/setup" -H "authorization: Bearer $BOT_TOKEN" -o setup.json; then
+              cat setup.json; echo
+              bot=$(node -e 'console.log(require("./setup.json").steps.bot)')
+              {
+                echo "### Поток выложен ✅"
+                echo
+                echo "- Приложение: $url"
+                echo "- Бот: $bot — кнопка «Поток» слева от поля ввода"
+                echo
+                echo "Если ещё не сделали: нажмите Start в боте, создайте закрытый канал для фото"
+                echo "и добавьте туда бота администратором — бот напишет «Готово»."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Воркер выложен, но бот не настроился — смотрите ответ выше"
+          exit 1
