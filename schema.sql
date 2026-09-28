@@ -165,6 +165,13 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 CREATE INDEX IF NOT EXISTS audit_target ON audit (target, id);
 
+-- Фото, которые нейросеть сочла 18+. Пост с таким фото уходит на проверку.
+CREATE TABLE IF NOT EXISTS media_flags (
+  key TEXT PRIMARY KEY,
+  reason TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 -- Битва факультетов: сырые очки человека за день (день — по Москве).
 -- Потолок в день применяется при подсчёте. Ключ (день, человек): таблица
 -- недели читается диапазоном по дню, «Ваш вклад» — семью точками.

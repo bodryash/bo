@@ -332,16 +332,19 @@ export async function createPost(env, user, body, ctx) {
 
   // Подозрительное публикуется, но сразу уходит на проверку: видят только
   // автор и модераторы. Третий такой случай за сутки — автобан.
-  const flag = user.admin ? null : scan([text, place, ...(poll ? JSON.parse(poll) : [])].filter(Boolean).join("\n"));
+  let flag = user.admin ? null : scan([text, place, ...(poll ? JSON.parse(poll) : [])].filter(Boolean).join("\n"));
 
+  let photoFlag = null;
   if (mediaKeys.length) {
-    const { results } = await env.DB.prepare(
-      `SELECT key FROM media WHERE owner_id = ? AND post_id IS NULL AND key IN (${mediaKeys.map(() => "?").join(",")})`
-    )
-      .bind(user.id, ...mediaKeys)
-      .all();
-    if (results.length !== new Set(mediaKeys).size) fail(400, "Фото не загрузились — добавьте их ещё раз");
+    const marks = mediaKeys.map(() => "?").join(",");
+    const [owned, flagged] = await env.DB.batch([
+      env.DB.prepare(`SELECT key FROM media WHERE owner_id = ? AND post_id IS NULL AND key IN (${marks})`).bind(user.id, ...mediaKeys),
+      env.DB.prepare(`SELECT key FROM media_flags WHERE key IN (${marks})`).bind(...mediaKeys),
+    ]);
+    if (owned.results.length !== new Set(mediaKeys).size) fail(400, "Фото не загрузились — добавьте их ещё раз");
+    if (flagged.results.length) photoFlag = { id: "photo", label: "фото 18+ (нейросеть)" };
   }
+  flag = flag || photoFlag;
 
   const [inserted] = await env.DB.batch([
     env.DB.prepare(

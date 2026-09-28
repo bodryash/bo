@@ -189,6 +189,8 @@ export function composeScreen({ rubric: presetRubric, scope: presetScope } = {})
         paintPhotos();
         const res = await api.upload(img.blob, img.w, img.h);
         Object.assign(photo, { key: res.key, w: res.w, h: res.h, uploading: false });
+        // Нейросеть сочла фото откровенным — пост с ним сначала посмотрит модератор.
+        if (res.review) toast("Это фото сначала посмотрит модератор");
       } catch (err) {
         Object.assign(photo, { uploading: false, failed: true });
         toast(err.message || "Фото не загрузилось", "error");

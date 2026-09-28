@@ -111,7 +111,20 @@ jobs:
         if: steps.check.outputs.ready == 'true'
         id: deploy
         run: |
-          npx wrangler deploy --var "ADMIN_IDS:$ADMIN_IDS" | tee deploy.log
+          set -o pipefail
+          # Нейросеть Workers AI проверяет фото на 18+. Привязка добавляется
+          # только здесь: локально она требовала бы входа в Cloudflare. Если
+          # Cloudflare её не примет — выкладываем без неё, приложение важнее.
+          cp wrangler.toml wrangler.base.toml
+          printf '\n[ai]\nbinding = "AI"\n' >> wrangler.toml
+          if npx wrangler deploy --var "ADMIN_IDS:$ADMIN_IDS" 2>&1 | tee deploy.log; then
+            echo "vision=on" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Cloudflare не принял привязку Workers AI — выкладываю без проверки фото нейросетью"
+            cp wrangler.base.toml wrangler.toml
+            npx wrangler deploy --var "ADMIN_IDS:$ADMIN_IDS" 2>&1 | tee deploy.log
+            echo "vision=off" >> "$GITHUB_OUTPUT"
+          fi
           url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)
           [ -n "$url" ] || { echo "::error::Не нашёл адрес воркера в выводе deploy"; exit 1; }
           echo "url=$url" >> "$GITHUB_OUTPUT"
@@ -134,6 +147,12 @@ jobs:
                 echo
                 echo "- Приложение: $url"
                 echo "- Бот: $bot — кнопка «Поток» слева от поля ввода"
+                if [ "${{ steps.deploy.outputs.vision }}" = "on" ]; then
+                  echo "- Проверка фото нейросетью: подключена (состояние — команда /media в боте)"
+                else
+                  echo "- Проверка фото нейросетью: **не подключена** — Cloudflare не принял привязку Workers AI."
+                  echo "  Добавьте в токен право Account → Workers AI → Read и перезапустите выкладку."
+                fi
                 echo
                 echo "Если ещё не сделали: нажмите Start в боте, создайте закрытый канал для фото"
                 echo "и добавьте туда бота администратором — бот напишет «Готово»."

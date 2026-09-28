@@ -9,7 +9,8 @@
     "db:remote": "wrangler d1 execute potok --remote --file schema.sql",
     "smoke": "node tests/smoke.mjs",
     "tail": "wrangler tail",
-    "mock": "node tools/mock-telegram.mjs"
+    "mock": "node tools/mock-telegram.mjs",
+    "test:vision": "node tests/vision.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.143.0"

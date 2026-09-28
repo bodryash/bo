@@ -14,6 +14,7 @@
 
 import { adminIds, callTelegram, DAY, fail, now, telegramUrl } from "./util.js";
 import { checkRate } from "./guard.js";
+import { checkPhoto } from "./vision.js";
 
 // Приложение само сжимает фото до 1600 точек по длинной стороне, это
 // 200–600 КБ. Всё крупнее — не наш клиент или испорченный файл.
@@ -62,20 +63,21 @@ export async function upload(env, user, request, url) {
   await checkRate(env, user, "upload");
 
   const key = `${crypto.randomUUID()}.${kind.ext}`;
-  let tg = { file_id: null, chat_id: null, message_id: null };
-  if (env.MEDIA) {
-    await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: type } });
-  } else {
-    tg = await sendToChannel(env, key, bytes, type);
-  }
+  // Нейросеть смотрит фото, пока оно едет на склад, — ждать дольше не придётся.
+  const store = env.MEDIA
+    ? env.MEDIA.put(key, bytes, { httpMetadata: { contentType: type } }).then(() => ({ file_id: null, chat_id: null, message_id: null }))
+    : sendToChannel(env, key, bytes, type);
+  const [tg, verdict] = await Promise.all([store, user.admin ? null : checkPhoto(env, bytes, type)]);
+  const review = verdict === "nsfw";
 
-  await env.DB.prepare(
-    "INSERT INTO media (key, owner_id, w, h, tg_file_id, tg_chat_id, tg_msg_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-  )
-    .bind(key, user.id, w, h, tg.file_id, tg.chat_id, tg.message_id, t)
-    .run();
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO media (key, owner_id, w, h, tg_file_id, tg_chat_id, tg_msg_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(key, user.id, w, h, tg.file_id, tg.chat_id, tg.message_id, t),
+    ...(review ? [env.DB.prepare("INSERT OR IGNORE INTO media_flags (key, reason, created_at) VALUES (?, ?, ?)").bind(key, "18+", t)] : []),
+  ]);
 
-  return { key, w, h };
+  return { key, w, h, review };
 }
 
 /**

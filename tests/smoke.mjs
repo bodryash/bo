@@ -611,6 +611,29 @@ await step("защита: повторы, флуд, фильтр и автоба
   await dima.post("/api/report", { target: `p:${pic.post.id}`, reason: "nsfw" });
   assert.equal((await boris.get(`/api/posts/${pic.post.id}`)).status, 404, "две жалобы на 18+ — скрыто");
 
+  // Нейросеть сочла фото откровенным (локально — AI_FAKE: метка NSFW в
+  // файле): загрузка проходит, а пост с таким фото — на проверку.
+  const shooter = person(10, "Фотограф");
+  await shooter.post("/api/me", profile);
+  const header = [0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70];
+  const nude = new Uint8Array([...header, ...new TextEncoder().encode("NSFW"), 0xff, 0xd9]);
+  const clean = new Uint8Array([...header, 1, 2, 3, 0xff, 0xd9]);
+  const up1 = await shooter.post("/api/upload?w=10&h=10", clean, { "content-type": "image/jpeg" });
+  assert.equal(up1.status, 200, up1.error);
+  assert.equal(up1.review, false);
+  const up2 = await shooter.post("/api/upload?w=10&h=10", nude, { "content-type": "image/jpeg" });
+  assert.equal(up2.review, true, "нейросеть пометила фото");
+  const okPost = await shooter.post("/api/posts", { rubric: "talk", text: `Закат над ГЗ ${run}`, media: [up1.key] });
+  assert.equal(okPost.post.hidden, 0);
+  const nudePost = await shooter.post("/api/posts", { rubric: "talk", text: `Фото ${run}`, media: [up2.key] });
+  assert.equal(nudePost.post.hidden, 1, "пост с таким фото — на проверке");
+  assert.match(nudePost.review, /фото/);
+  assert.equal((await anya.get(`/api/posts/${nudePost.post.id}`)).status, 404);
+  await fetch(MOCK + "/__reset");
+  await botUpdate({ message: { message_id: 7, chat: { id: 1001, type: "private" }, from: { id: 1001, first_name: "M" }, text: "/media" } });
+  const media = (await telegramCalls()).find((c) => c.method === "sendMessage" && String(c.text).includes("нейросетью"));
+  assert.match(media.text, /работает/);
+
   // «Бан и стереть всё за неделю»: посты и комментарии разом, счётчики верные.
   const bomber = person(9, "Бомбер");
   await bomber.post("/api/me", profile);

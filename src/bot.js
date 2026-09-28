@@ -18,6 +18,7 @@ import { appUrl } from "./notify.js";
 import { webhookSecret } from "./setup.js";
 import { displayName, userSearchKey } from "./users.js";
 import { DAY, callTelegram, escapeHtml, isAdminTg, now, safeEqual } from "./util.js";
+import { visionStatus } from "./vision.js";
 
 export async function handleUpdate(env, request) {
   const secret = request.headers.get("x-telegram-bot-api-secret-token") || "";
@@ -211,8 +212,17 @@ async function mediaStatus(env, message) {
         "Бот сам поймёт, что это склад, и напишет сюда."
     );
   }
-  const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM media WHERE tg_file_id IS NOT NULL").first("n");
-  return reply(env, message, `📷 Фото хранятся в канале <code>${escapeHtml(chat)}</code>. Всего файлов: ${count}.`);
+  const [count, flagged, vision] = await Promise.all([
+    env.DB.prepare("SELECT COUNT(*) AS n FROM media WHERE tg_file_id IS NOT NULL").first("n"),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM media_flags WHERE created_at > ?").bind(now() - 7 * DAY).first("n"),
+    visionStatus(env),
+  ]);
+  return reply(
+    env,
+    message,
+    `📷 Фото хранятся в канале <code>${escapeHtml(chat)}</code>. Всего файлов: ${count}.\n\n` +
+      `🤖 ${escapeHtml(vision)}\nПомечено как 18+ за неделю: ${flagged}.`
+  );
 }
 
 async function stats(env) {
