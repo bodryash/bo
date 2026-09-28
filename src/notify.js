@@ -86,7 +86,8 @@ export async function listNotifications(env, user) {
     .all();
 
   const seenBefore = user.notif_seen_at;
-  await env.DB.prepare("UPDATE users SET notif_seen_at = ? WHERE id = ?").bind(now(), user.id).run();
+  user.notif_seen_at = now();
+  await env.DB.prepare("UPDATE users SET notif_seen_at = ? WHERE id = ?").bind(user.notif_seen_at, user.id).run();
 
   return {
     items: results

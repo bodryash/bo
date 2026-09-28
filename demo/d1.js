@@ -51,7 +51,9 @@ export function createD1(SQL) {
     raw: db,
     prepare: (sql) => new Statement(db, sql),
     async batch(statements) {
-      return Promise.all(statements.map((s) => s.all()));
+      const out = [];
+      for (const s of statements) out.push(await s.run());
+      return out;
     },
     async exec(sql) {
       db.exec(sql);

@@ -11,7 +11,14 @@ const SEEN_REFRESH = 600;
  * `Authorization: tma <initData>`; без неё — 401, приложение покажет
  * «откройте через Telegram».
  */
-export async function viewer(request, env) {
+// Кто это — помним полминуты в памяти воркера: без этого каждое действие
+// начиналось с лишнего похода в базу. Обработчики меняют этот же объект
+// (профиль, прочитанные уведомления), так что память не отстаёт. Бан,
+// выданный через бота в другом экземпляре воркера, подхватится через 30 с.
+const recent = new Map();
+const RECENT_TTL = 30_000;
+
+export async function viewer(request, env, ctx, { fresh = false } = {}) {
   const header = request.headers.get("authorization") || "";
   const initData = header.startsWith("tma ") ? header.slice(4) : "";
   const tg = await verifyInitData(initData, env.BOT_TOKEN);
@@ -25,7 +32,10 @@ export async function viewer(request, env) {
     photo_url: typeof tg.photo_url === "string" && tg.photo_url.startsWith("https://") ? tg.photo_url : null,
   };
 
-  let user = await env.DB.prepare("SELECT * FROM users WHERE tg_id = ?").bind(tg.id).first();
+  const hit = recent.get(tg.id);
+  // fresh — там, где важен бан (пост, комментарий, фото): только из базы.
+  let user = !fresh && hit && Date.now() - hit.at < RECENT_TTL ? hit.user : null;
+  if (!user) user = await env.DB.prepare("SELECT * FROM users WHERE tg_id = ?").bind(tg.id).first();
   const search = userSearchKey({ ...fields, show_username: user ? user.show_username : 1 });
   if (!user) {
     user = await env.DB.prepare(
@@ -39,15 +49,20 @@ export async function viewer(request, env) {
   } else {
     const changed = Object.keys(fields).some((k) => (user[k] ?? null) !== fields[k]) || user.search !== search;
     if (changed || t - user.seen_at > SEEN_REFRESH) {
-      await env.DB.prepare(
+      // Запись «был тогда-то» ответ не задерживает — уходит после него.
+      const write = env.DB.prepare(
         "UPDATE users SET first_name = ?, last_name = ?, username = ?, photo_url = ?, search = ?, seen_at = ? WHERE id = ?"
       )
         .bind(fields.first_name, fields.last_name, fields.username, fields.photo_url, search, t, user.id)
         .run();
+      if (ctx) ctx.waitUntil(write);
+      else await write;
       Object.assign(user, fields, { search, seen_at: t });
     }
   }
 
+  if (!hit || hit.user !== user) recent.set(tg.id, { user, at: Date.now() });
+  if (recent.size > 5000) recent.clear();
   user.admin = isAdminTg(env, tg.id);
   return user;
 }

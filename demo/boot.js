@@ -13,6 +13,7 @@ import { createD1, createMedia } from "./d1.js";
 import { drawBook, drawPass, drawQuiz } from "./pictures.js";
 
 const TOKEN = "777000:DEMO-TOKEN";
+const DELAY = Number(new URLSearchParams(location.search).get("delay")) || 0;
 const ORIGIN = "https://potok.demo";
 const ME = { id: 7000, first_name: "Гость", language_code: "ru" };
 
@@ -74,6 +75,8 @@ async function boot() {
   window.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
     if (url.startsWith("/api/")) {
+      // ?delay=1500 — изобразить медленный сервер (для проверки интерфейса).
+      if (DELAY) await new Promise((r) => setTimeout(r, DELAY));
       const res = await handle(url, init);
       react(url, init, res.clone());
       return res;

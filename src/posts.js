@@ -190,14 +190,17 @@ async function authorFeed(env, viewerUser, authorId, params) {
   };
 }
 
+export const postQuery = (env, id) => env.DB.prepare(`${POST_SELECT} WHERE p.id = ?`).bind(id);
+
 export async function loadPost(env, id) {
   const row = await env.DB.prepare(`${POST_SELECT} WHERE p.id = ?`).bind(id).first();
   if (!row || row.hidden === 2) fail(404, "Пост удалён или его не было");
   return row;
 }
 
-export async function getPostView(env, viewerUser, id) {
-  const row = await loadPost(env, id);
+export async function getPostView(env, viewerUser, id, preloaded) {
+  const row = preloaded || (await loadPost(env, id));
+  if (!row || row.hidden === 2) fail(404, "Пост удалён или его не было");
   // Скрытый жалобами пост видят только автор и модераторы — чтобы понимать,
   // что с ним случилось.
   if (row.hidden === 1 && row.author_id !== viewerUser.id && !viewerUser.admin) {
@@ -306,50 +309,68 @@ export async function closePost(env, user, id, body) {
   return { closed: !!body.closed };
 }
 
+/**
+ * Лайк — одним походом в базу: запись, пересчёт и ответ пакетом. Раньше
+ * это были четыре запроса подряд, и каждый — лишняя задержка.
+ */
 export async function likePost(env, user, id, body, ctx) {
-  const row = await loadPost(env, id);
-  if (row.hidden) fail(404, "Пост скрыт");
-  const t = now();
-
-  if (body.on) {
-    const res = await env.DB.prepare("INSERT OR IGNORE INTO likes (post_id, user_id, created_at) VALUES (?, ?, ?)")
-      .bind(id, user.id, t)
-      .run();
-    if (res.meta.changes) {
-      await env.DB.prepare("UPDATE posts SET likes = likes + 1 WHERE id = ?").bind(id).run();
-      if (row.author_id !== user.id) ctx.waitUntil(notify(env, { kind: "like", userId: row.author_id, postId: id, actorId: user.id }));
-    }
-  } else {
-    const res = await env.DB.prepare("DELETE FROM likes WHERE post_id = ? AND user_id = ?").bind(id, user.id).run();
-    if (res.meta.changes) await env.DB.prepare("UPDATE posts SET likes = MAX(likes - 1, 0) WHERE id = ?").bind(id).run();
+  const on = !!body.on;
+  const [res, , info] = await env.DB.batch([
+    on
+      ? env.DB.prepare(
+          `INSERT OR IGNORE INTO likes (post_id, user_id, created_at)
+           SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM posts WHERE id = ? AND hidden = 0)`
+        ).bind(id, user.id, now(), id)
+      : env.DB.prepare("DELETE FROM likes WHERE post_id = ? AND user_id = ?").bind(id, user.id),
+    env.DB.prepare("UPDATE posts SET likes = (SELECT COUNT(*) FROM likes WHERE post_id = ?) WHERE id = ?").bind(id, id),
+    env.DB.prepare("SELECT likes, author_id, hidden FROM posts WHERE id = ?").bind(id),
+  ]);
+  const row = info.results[0];
+  if (!row || row.hidden) fail(404, "Пост скрыт или удалён");
+  if (on && res.meta.changes && row.author_id !== user.id) {
+    ctx.waitUntil(notify(env, { kind: "like", userId: row.author_id, postId: id, actorId: user.id }));
   }
-
-  const likes = await env.DB.prepare("SELECT likes FROM posts WHERE id = ?").bind(id).first("likes");
-  return { liked: !!body.on, likes };
+  return { liked: on, likes: row.likes };
 }
 
 /**
  * Голос в опросе. Можно переголосовать (другой вариант) и отменить
  * (option: null) — как в опросах Telegram с кнопкой «Отменить голос».
+ * Два похода в базу: проверить опрос, затем записать и пересчитать разом.
  */
 export async function votePost(env, user, id, body) {
-  const row = await loadPost(env, id);
+  const row = await env.DB.prepare("SELECT poll, hidden FROM posts WHERE id = ?").bind(id).first();
+  if (!row || row.hidden === 2) fail(404, "Пост удалён или его не было");
   if (!row.poll || row.hidden) fail(400, "Здесь нет опроса");
+  const options = JSON.parse(row.poll);
+
+  let write;
   if (body.option === null || body.option === undefined) {
-    await env.DB.prepare("DELETE FROM votes WHERE post_id = ? AND user_id = ?").bind(id, user.id).run();
+    write = env.DB.prepare("DELETE FROM votes WHERE post_id = ? AND user_id = ?").bind(id, user.id);
   } else {
     const option = Number(body.option);
-    const options = JSON.parse(row.poll);
     if (!Number.isInteger(option) || option < 0 || option >= options.length) fail(400, "Нет такого варианта");
-    await env.DB.prepare(
+    write = env.DB.prepare(
       `INSERT INTO votes (post_id, user_id, option) VALUES (?, ?, ?)
        ON CONFLICT(post_id, user_id) DO UPDATE SET option = excluded.option`
-    )
-      .bind(id, user.id, option)
-      .run();
+    ).bind(id, user.id, option);
   }
-  const [post] = await hydrate(env, [row], user);
-  return { poll: post.poll };
+
+  const [, counted, mine] = await env.DB.batch([
+    write,
+    env.DB.prepare("SELECT option, COUNT(*) AS n FROM votes WHERE post_id = ? GROUP BY option").bind(id),
+    env.DB.prepare("SELECT option FROM votes WHERE post_id = ? AND user_id = ?").bind(id, user.id),
+  ]);
+  const counts = options.map(() => 0);
+  for (const r of counted.results) if (r.option < counts.length) counts[r.option] = r.n;
+  return {
+    poll: {
+      options,
+      counts,
+      total: counts.reduce((a, b) => a + b, 0),
+      mine: mine.results[0]?.option ?? null,
+    },
+  };
 }
 
 /**

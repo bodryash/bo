@@ -1,4 +1,4 @@
-import { api, store } from "./api.js";
+import { api, store, writes } from "./api.js";
 import { myFacultyShort, postCard } from "./card.js";
 import { FACULTY, RUBRICS } from "./data.js";
 import { go } from "./router.js";
@@ -7,6 +7,9 @@ import { haptic } from "./tg.js";
 import { emptyState, h, icon, logo, spinner, syncPill, syncThumb } from "./ui.js";
 
 const PREFS_KEY = "feedPrefs";
+
+// Последняя загруженная первая страница каждой ленты — на время сессии.
+const feedCache = new Map();
 
 function loadPrefs() {
   try {
@@ -192,35 +195,66 @@ export function feedScreen({ fixedScope = null } = {}) {
     return "/api/feed?" + p;
   }
 
+  /**
+   * Первая страница. Если эту рубрику уже открывали — показываем её из
+   * памяти мгновенно и тихо обновляем; перерисовываем, только если что-то
+   * изменилось. Первый раз — заглушки, пока идёт запрос.
+   */
   async function load(reset) {
     if (loading && !reset) return;
     const gen = reset ? ++generation : generation;
     loading = true;
+    const key = query(null);
+    const cached = reset ? feedCache.get(key) : null;
+    const writesAtStart = writes.n;
     if (reset) {
-      list.replaceChildren(skeleton(), skeleton());
       next = null;
+      if (cached) paint(cached, true);
+      else list.replaceChildren(skeleton(), skeleton());
+      if (enterDir) {
+        slideSwap(list, enterDir);
+        if (cached) enterDir = 0;
+      }
     } else {
       sentinel.replaceChildren(spinner());
     }
     try {
       const data = await api.get(query(reset ? null : next));
-      if (gen !== generation) return; // пока грузилось, переключили рубрику
-      if (reset) list.replaceChildren();
-      if (reset && enterDir) {
-        slideSwap(list, enterDir);
-        enterDir = 0;
+      // Пока шёл запрос, человек что-то сделал (лайк, голос) — на экране
+      // уже его версия, свежее этого ответа. Не перерисовываем.
+      const stale = reset && cached && writes.n !== writesAtStart;
+      // В память кладём, даже если за это время ушли на другую рубрику:
+      // вернутся — увидят сразу.
+      if (reset && !stale) feedCache.set(key, data);
+      if (gen !== generation) return;
+      if (reset) {
+        if (!stale && (!cached || JSON.stringify(cached) !== JSON.stringify(data))) {
+          const quietly = !!cached;
+          if (enterDir && !cached) slideSwap(list, enterDir);
+          enterDir = 0;
+          paint(data, !quietly, quietly);
+        }
+        next = data.next;
+      } else {
+        data.posts.forEach((post, i) => list.append(postCard(post, { index: i })));
+        next = data.next;
       }
-      data.posts.forEach((post, i) => list.append(postCard(post, { index: i })));
-      next = data.next;
-      if (reset && !data.posts.length) list.append(empty());
       sentinel.replaceChildren(!next && list.querySelector(".post") ? h("div.end", "Это всё — дальше пусто") : "");
     } catch (err) {
       if (gen !== generation) return;
-      if (reset) list.replaceChildren(errorState(err, () => load(true)));
-      else sentinel.replaceChildren(h("button.link-btn", { onclick: () => load(false) }, "Не загрузилось — ещё раз"));
+      if (reset && !cached) list.replaceChildren(errorState(err, () => load(true)));
+      else if (!reset) sentinel.replaceChildren(h("button.link-btn", { onclick: () => load(false) }, "Не загрузилось — ещё раз"));
     } finally {
       if (gen === generation) loading = false;
     }
+  }
+
+  /** Отрисовать первую страницу. quiet — без анимации появления. */
+  function paint(data, animate = true, quiet = false) {
+    list.replaceChildren(...data.posts.map((post, i) => postCard(post, { index: i, appear: animate && !quiet })));
+    next = data.next;
+    if (!data.posts.length) list.append(empty());
+    sentinel.replaceChildren(!next && data.posts.length ? h("div.end", "Это всё — дальше пусто") : "");
   }
 
   function reload() {

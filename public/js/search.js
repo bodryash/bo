@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { postCard } from "./card.js";
-import { errorState } from "./feed.js";
+import { errorState, skeleton } from "./feed.js";
 import { go } from "./router.js";
 import { avatar, emptyState, h, icon, spinner } from "./ui.js";
 import { studentLine } from "./data.js";
@@ -12,7 +12,27 @@ import { studentLine } from "./data.js";
 export function searchScreen() {
   const input = h("input.field.search-field", { type: "search", placeholder: "Люди, объявления, конспекты…", enterKeyHint: "search" });
   const results = h("div.search-results");
-  const el = h("div.search", h("div.topbar", h("div.brand", "Поиск")), h("div.search-box", icon("search"), input), results);
+  // «Отмена» — как в поиске iOS: очистить и убрать клавиатуру. Без неё с
+  // открытой клавиатурой было непонятно, как уйти с экрана.
+  const cancel = h(
+    "button.search-cancel",
+    {
+      onclick: () => {
+        input.value = "";
+        input.blur();
+        paintCancel();
+        upcoming();
+      },
+    },
+    "Отмена"
+  );
+  const paintCancel = () => box.classList.toggle("active", document.activeElement === input || !!input.value);
+  const box = h("div.search-row", h("div.search-box", icon("search"), input), cancel);
+  input.addEventListener("focus", paintCancel);
+  input.addEventListener("blur", () => setTimeout(paintCancel, 0));
+  const el = h("div.search", h("div.topbar", h("div.brand", "Поиск")), box, results);
+  // Потянул результаты — клавиатура уходит, видно больше.
+  results.addEventListener("touchmove", () => document.activeElement === input && input.blur(), { passive: true });
 
   let timer;
   let seq = 0;
@@ -59,6 +79,7 @@ export function searchScreen() {
 
   async function upcoming() {
     const my = ++seq;
+    if (!results.querySelector(".post")) results.replaceChildren(h("div.section-label.pad", "Ближайшие события МГУ"), skeleton(), skeleton());
     try {
       const data = await api.get("/api/feed?scope=msu&rubric=event&sort=soon");
       if (my !== seq) return;

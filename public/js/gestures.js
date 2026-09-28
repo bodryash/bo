@@ -16,7 +16,7 @@ const SWIPE_VELOCITY = 0.3; // px/мс — быстрый флик засчит�
 const TAP_SLOP = 8; // px
 export const EDGE = 36; // px от левого края
 const LONG_PRESS = 450; // мс
-const DOUBLE_TAP = 260; // мс
+const DOUBLE_TAP = 200; // мс — дольше, и открытие поста кажется медленным
 
 export const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 

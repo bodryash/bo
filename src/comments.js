@@ -1,6 +1,6 @@
 import { LIMITS } from "../public/js/data.js";
 import { notify } from "./notify.js";
-import { loadPost } from "./posts.js";
+import { loadPost, postQuery } from "./posts.js";
 import { AUTHOR_COLUMNS, assertCanWrite, authorFromRow } from "./users.js";
 import { DAY, charCount, cleanText, fail, now } from "./util.js";
 
@@ -12,14 +12,15 @@ const MAX_COMMENTS = 500;
  * дерево не строим: в узком окне телефона вложенность в три уровня уже
  * нечитаема, поэтому ответ показывается цитатой, как в Telegram.
  */
-export async function listComments(env, viewerUser, postId) {
-  const post = await loadPost(env, postId);
-  const { results } = await env.DB.prepare(
+export const commentsQuery = (env, postId) =>
+  env.DB.prepare(
     `SELECT c.*, ${AUTHOR_COLUMNS} FROM comments c JOIN users u ON u.id = c.author_id
      WHERE c.post_id = ? AND c.hidden = 0 ORDER BY c.id LIMIT ?`
-  )
-    .bind(postId, MAX_COMMENTS)
-    .all();
+  ).bind(postId, MAX_COMMENTS);
+
+export async function listComments(env, viewerUser, postId, preloaded) {
+  const post = preloaded?.post || (await loadPost(env, postId));
+  const results = preloaded?.comments || (await commentsQuery(env, postId).all()).results;
   return results.map((c) => serialize(c, post, viewerUser));
 }
 
@@ -43,53 +44,44 @@ function serialize(c, post, viewerUser) {
 
 export async function addComment(env, user, postId, body, ctx) {
   assertCanWrite(user);
-  const post = await loadPost(env, postId);
-  if (post.hidden) fail(403, "Пост скрыт — комментировать нельзя");
-
   const text = cleanText(body.text);
   if (!text) fail(400, "Пустой комментарий");
   if (charCount(text) > LIMITS.commentText) fail(400, `Комментарий длиннее ${LIMITS.commentText} знаков`);
-
   const t = now();
-  const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM comments WHERE author_id = ? AND created_at > ?")
-    .bind(user.id, t - DAY)
-    .first("n");
-  if (count >= COMMENTS_PER_DAY) fail(429, "На сегодня комментариев достаточно");
+  const replyId = body.reply_to ? Number(body.reply_to) : 0;
 
-  let replyTo = null;
-  if (body.reply_to) {
-    replyTo = await env.DB.prepare("SELECT id, author_id FROM comments WHERE id = ? AND post_id = ? AND hidden = 0")
-      .bind(Number(body.reply_to), postId)
-      .first();
-    if (!replyTo) fail(400, "Комментарий, на который вы отвечаете, удалён");
-  }
+  // Всё, что нужно проверить, — одним пакетом: пост, лимит, на что ответ,
+  // под каким номером этот человек уже писал анонимно.
+  const [p, count, reply, prevAnon, maxAnon] = await env.DB.batch([
+    postQuery(env, postId),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM comments WHERE author_id = ? AND created_at > ?").bind(user.id, t - DAY),
+    env.DB.prepare("SELECT id, author_id FROM comments WHERE id = ? AND post_id = ? AND hidden = 0").bind(replyId, postId),
+    env.DB.prepare(
+      "SELECT anon_no FROM comments WHERE post_id = ? AND author_id = ? AND anonymous = 1 AND anon_no > 0 LIMIT 1"
+    ).bind(postId, user.id),
+    env.DB.prepare("SELECT COALESCE(MAX(anon_no), 0) + 1 AS n FROM comments WHERE post_id = ?").bind(postId),
+  ]);
+  const post = p.results[0];
+  if (!post || post.hidden === 2) fail(404, "Пост удалён или его не было");
+  if (post.hidden) fail(403, "Пост скрыт — комментировать нельзя");
+  if (count.results[0].n >= COMMENTS_PER_DAY) fail(429, "На сегодня комментариев достаточно");
+  const replyTo = replyId ? reply.results[0] : null;
+  if (replyId && !replyTo) fail(400, "Комментарий, на который вы отвечаете, удалён");
 
   const anonymous = body.anonymous ? 1 : 0;
   let anonNo = null;
   if (anonymous) {
-    if (post.anonymous && post.author_id === user.id) {
-      anonNo = 0;
-    } else {
-      const prev = await env.DB.prepare(
-        "SELECT anon_no FROM comments WHERE post_id = ? AND author_id = ? AND anonymous = 1 AND anon_no > 0 LIMIT 1"
-      )
-        .bind(postId, user.id)
-        .first("anon_no");
-      anonNo =
-        prev ??
-        (await env.DB.prepare("SELECT COALESCE(MAX(anon_no), 0) + 1 AS n FROM comments WHERE post_id = ?")
-          .bind(postId)
-          .first("n"));
-    }
+    anonNo = post.anonymous && post.author_id === user.id ? 0 : prevAnon.results[0]?.anon_no ?? maxAnon.results[0].n;
   }
 
-  const row = await env.DB.prepare(
-    `INSERT INTO comments (post_id, author_id, anonymous, anon_no, reply_to, text, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
-  )
-    .bind(postId, user.id, anonymous, anonNo, replyTo?.id ?? null, text, t)
-    .first();
-  await env.DB.prepare("UPDATE posts SET comments = comments + 1 WHERE id = ?").bind(postId).run();
+  const [inserted] = await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO comments (post_id, author_id, anonymous, anon_no, reply_to, text, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    ).bind(postId, user.id, anonymous, anonNo, replyTo?.id ?? null, text, t),
+    env.DB.prepare("UPDATE posts SET comments = comments + 1 WHERE id = ?").bind(postId),
+  ]);
+  const row = inserted.results[0];
 
   // Автору поста — «ответ на пост», автору комментария — «ответ вам».
   // Если это один и тот же человек, хватит одного уведомления.

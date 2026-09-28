@@ -67,25 +67,41 @@ jobs:
         if: steps.check.outputs.ready == 'true'
         run: npm ci
 
+      # База живёт в Восточной Европе — ближе всего к Москве. Первая версия
+      # («potok») создалась без подсказки и оказалась там, где работал
+      # сервер GitHub (в США): каждое обращение шло через океан, действие
+      # занимало секунды. Если есть старая база — переносим данные.
       - name: База D1
         if: steps.check.outputs.ready == 'true'
         run: |
+          DB=potok-eu
           find_db() {
             npx wrangler d1 list --json | node -e '
               let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
-                const db = JSON.parse(s).find((d) => d.name === "potok");
+                const db = JSON.parse(s).find((d) => d.name === process.argv[1]);
                 process.stdout.write(db ? db.uuid : "");
-              });'
+              });' "$1"
           }
-          id=$(find_db)
+          id=$(find_db $DB)
           if [ -z "$id" ]; then
-            npx wrangler d1 create potok
-            id=$(find_db)
+            npx wrangler d1 create $DB --location eeur
+            id=$(find_db $DB)
+            [ -n "$id" ] || { echo "::error::Не удалось создать базу D1 — проверьте, что у токена есть право D1: Edit"; exit 1; }
+            old=$(find_db potok)
+            if [ -n "$old" ]; then
+              echo "Переношу данные из старой базы potok"
+              # Перенос сорвался — новую базу убираем, чтобы следующий
+              # запуск начал перенос заново, а не с полупустой базы.
+              if ! { npx wrangler d1 export potok --remote --output old.sql && npx wrangler d1 execute $DB --remote --file old.sql -y; }; then
+                npx wrangler d1 delete $DB -y
+                echo "::error::Не удалось перенести данные из старой базы"
+                exit 1
+              fi
+            fi
           fi
-          [ -n "$id" ] || { echo "::error::Не удалось создать базу D1 — проверьте, что у токена есть право D1: Edit"; exit 1; }
-          sed -i "s/^database_id = .*/database_id = \"$id\"/" wrangler.toml
+          sed -i "s/^database_name = .*/database_name = \"$DB\"/; s/^database_id = .*/database_id = \"$id\"/" wrangler.toml
           # Все таблицы — CREATE ... IF NOT EXISTS: повторный запуск ничего не ломает.
-          npx wrangler d1 execute potok --remote --file schema.sql -y
+          npx wrangler d1 execute $DB --remote --file schema.sql -y
 
       - name: Выложить воркер
         if: steps.check.outputs.ready == 'true'

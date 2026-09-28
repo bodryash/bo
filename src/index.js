@@ -8,11 +8,11 @@
  */
 
 import { handleUpdate } from "./bot.js";
-import { addComment, deleteComment, listComments } from "./comments.js";
+import { addComment, commentsQuery, deleteComment, listComments } from "./comments.js";
 import { cleanupOrphans, serveImage, upload } from "./media.js";
 import { report } from "./moderation.js";
 import { listNotifications } from "./notify.js";
-import { closePost, createPost, deletePost, feed, getPostView, likePost, search, votePost } from "./posts.js";
+import { closePost, createPost, deletePost, feed, getPostView, likePost, postQuery, search, votePost } from "./posts.js";
 import { checkWebhook, handleSetup } from "./setup.js";
 import { getMe, getProfile, updateMe, viewer } from "./users.js";
 import { DAY, HttpError, json, now, readJson } from "./util.js";
@@ -24,32 +24,37 @@ const ROUTES = [
   ["GET", "/api/users/:id", (c) => getProfile(c.env, c.user, c.id)],
   ["GET", "/api/feed", (c) => feed(c.env, c.user, c.url.searchParams)],
   ["GET", "/api/search", (c) => search(c.env, c.user, c.url.searchParams.get("q"))],
-  ["POST", "/api/posts", async (c) => createPost(c.env, c.user, await readJson(c.request))],
+  ["POST", "/api/posts", async (c) => createPost(c.env, c.user, await readJson(c.request)), { fresh: true }],
   [
     "GET",
     "/api/posts/:id",
-    async (c) => ({
-      post: await getPostView(c.env, c.user, c.id),
-      comments: await listComments(c.env, c.user, c.id),
-    }),
+    async (c) => {
+      // Пост и комментарии — одним походом в базу.
+      const [p, cm] = await c.env.DB.batch([postQuery(c.env, c.id), commentsQuery(c.env, c.id)]);
+      const row = p.results[0];
+      return {
+        post: await getPostView(c.env, c.user, c.id, row),
+        comments: await listComments(c.env, c.user, c.id, { post: row, comments: cm.results }),
+      };
+    },
   ],
   ["POST", "/api/posts/:id/delete", (c) => deletePost(c.env, c.user, c.id)],
   ["POST", "/api/posts/:id/close", async (c) => closePost(c.env, c.user, c.id, await readJson(c.request))],
   ["POST", "/api/posts/:id/like", async (c) => likePost(c.env, c.user, c.id, await readJson(c.request), c.ctx)],
   ["POST", "/api/posts/:id/vote", async (c) => votePost(c.env, c.user, c.id, await readJson(c.request))],
-  ["POST", "/api/posts/:id/comments", async (c) => addComment(c.env, c.user, c.id, await readJson(c.request), c.ctx)],
+  ["POST", "/api/posts/:id/comments", async (c) => addComment(c.env, c.user, c.id, await readJson(c.request), c.ctx), { fresh: true }],
   ["POST", "/api/comments/:id/delete", (c) => deleteComment(c.env, c.user, c.id)],
   ["POST", "/api/report", async (c) => report(c.env, c.user, await readJson(c.request), c.ctx)],
-  ["POST", "/api/upload", (c) => upload(c.env, c.user, c.request, c.url)],
+  ["POST", "/api/upload", (c) => upload(c.env, c.user, c.request, c.url), { fresh: true }],
   ["GET", "/api/notifications", (c) => listNotifications(c.env, c.user)],
 ];
 
 function match(method, path) {
-  for (const [m, pattern, handler] of ROUTES) {
+  for (const [m, pattern, handler, opts = {}] of ROUTES) {
     if (m !== method) continue;
     const re = new RegExp("^" + pattern.replace(":id", "(\\d+)") + "$");
     const found = re.exec(path);
-    if (found) return { handler, id: found[1] ? Number(found[1]) : null };
+    if (found) return { handler, opts, id: found[1] ? Number(found[1]) : null };
   }
   return null;
 }
@@ -58,7 +63,7 @@ async function api(request, env, ctx, url) {
   const route = match(request.method, url.pathname);
   if (!route) return json({ error: "Нет такого адреса" }, 404);
   try {
-    const user = await viewer(request, env);
+    const user = await viewer(request, env, ctx, route.opts);
     const data = await route.handler({ request, env, ctx, url, user, id: route.id });
     return json(data);
   } catch (error) {

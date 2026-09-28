@@ -3,7 +3,7 @@
  * странице поста. В ленте длинный текст сворачивается, на странице — нет.
  */
 
-import { api, imageUrl, postLink, store } from "./api.js";
+import { api, imageUrl, postCache, postLink, store } from "./api.js";
 import { FACULTY, REPORT_REASONS, RUBRIC, studentLine } from "./data.js";
 import { go } from "./router.js";
 import { haptic, openLink } from "./tg.js";
@@ -13,8 +13,9 @@ import { bump, heartBurst, pressable } from "./gestures.js";
 
 const CLOSED_LABEL = { market: "Продано", lost: "Нашлось", housing: "Уже не актуально" };
 
-export function postCard(post, { full = false, showScope = false, onRemove, index = 0 } = {}) {
-  const card = h("article.post.appear", { dataset: { id: post.id }, style: { "--i": Math.min(index, 8) } });
+export function postCard(post, { full = false, showScope = false, onRemove, index = 0, appear = true } = {}) {
+  postCache.set(post.id, post);
+  const card = h("article.post" + (appear ? ".appear" : ""), { dataset: { id: post.id }, style: { "--i": Math.min(index, 8) } });
   if (post.closed) card.classList.add("closed");
   if (!full) card.classList.add("tappable");
   // Касание — открыть пост, двойное — лайк с сердцем, долгое — меню.
@@ -137,50 +138,70 @@ export function mediaGrid(media) {
  */
 function pollBlock(post) {
   const wrap = h("div.poll");
-  let busy = false;
-  const render = (changed) => {
-    const { options, counts, total, mine } = post.poll;
+  const { options } = post.poll;
+  // Строки создаются один раз и дальше только обновляются: полоски и
+  // проценты перетекают к новым значениям, а не перерисовываются.
+  const rows = options.map((text, i) => {
+    const bar = h("div.poll-bar");
+    const check = icon("check");
+    const pct = h("span.poll-pct");
+    const btn = h("button.poll-option", { onclick: (e) => (e.stopPropagation(), vote(i)) }, bar, h("span.poll-text", text, check), pct);
+    return { btn, bar, check, pct };
+  });
+  const total = h("div.poll-total");
+  wrap.append(...rows.map((r) => r.btn), total);
+
+  const render = () => {
+    const { counts, total: sum, mine } = post.poll;
     const voted = mine !== null;
-    wrap.replaceChildren(
-      ...options.map((text, i) => {
-        const pct = total ? Math.round((counts[i] / total) * 100) : 0;
-        const bar = voted ? h("div.poll-bar", { style: { width: changed ? "0%" : `${pct}%` } }) : null;
-        if (bar && changed) requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.width = `${pct}%`)));
-        return h(
-          "button.poll-option" + (voted ? ".voted" : "") + (mine === i ? ".mine" : ""),
-          { onclick: (e) => (e.stopPropagation(), vote(i)) },
-          bar,
-          h("span.poll-text", text, mine === i ? icon("check") : null),
-          voted ? h("span.poll-pct", `${pct}%`) : null
-        );
-      }),
-      h(
-        "div.poll-total",
-        total ? `${total} ${plural(total, "голос", "голоса", "голосов")}` : "Пока никто не голосовал",
-        voted ? h("span.poll-hint", " · коснитесь своего варианта, чтобы отменить") : null
-      )
+    rows.forEach((r, i) => {
+      const p = sum ? Math.round((counts[i] / sum) * 100) : 0;
+      r.btn.classList.toggle("voted", voted);
+      r.btn.classList.toggle("mine", mine === i);
+      r.bar.style.width = voted ? `${p}%` : "0%";
+      r.pct.textContent = voted ? `${p}%` : "";
+      r.check.hidden = mine !== i;
+    });
+    total.replaceChildren(
+      sum ? `${sum} ${plural(sum, "голос", "голоса", "голосов")}` : "Пока никто не голосовал",
+      voted ? h("span.poll-hint", " · коснитесь своего варианта, чтобы отменить") : ""
     );
   };
 
+  /**
+   * Голос виден сразу: проценты пересчитываются на экране, запрос идёт
+   * следом. Ответ сервера лишь уточняет числа; ошибка — откат.
+   */
   async function vote(i) {
-    if (busy) return;
-    busy = true;
-    const cancel = post.poll.mine === i;
+    const before = post.poll;
+    const cancel = before.mine === i;
     haptic[cancel ? "tap" : "select"]();
+    const counts = [...before.counts];
+    if (before.mine !== null) counts[before.mine] = Math.max(0, counts[before.mine] - 1);
+    if (!cancel) counts[i] += 1;
+    post.poll = { ...before, counts, total: counts.reduce((a, b) => a + b, 0), mine: cancel ? null : i };
+    render();
+    if (cancel) toast("Голос отменён");
+
+    const seq = (wrap.seq = (wrap.seq || 0) + 1);
     try {
       const res = await api.post(`/api/posts/${post.id}/vote`, { option: cancel ? null : i });
-      post.poll = res.poll;
-      render(true);
-      if (cancel) toast("Голос отменён");
+      // Пока шёл запрос, могли нажать ещё раз — тогда этот ответ устарел.
+      if (seq === wrap.seq) {
+        post.poll = res.poll;
+        render();
+      }
     } catch (err) {
+      if (seq === wrap.seq) {
+        post.poll = before;
+        render();
+      }
       haptic.error();
       toast(err.message, "error");
-    } finally {
-      busy = false;
     }
   }
 
-  render(false);
+  render();
   return wrap;
 }
 

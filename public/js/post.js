@@ -1,4 +1,4 @@
-import { api, store } from "./api.js";
+import { api, postCache, store } from "./api.js";
 import { postCard, reportSheet } from "./card.js";
 import { LIMITS, studentLine } from "./data.js";
 import { errorState, skeleton } from "./feed.js";
@@ -24,13 +24,25 @@ export function postScreen({ id, comment }) {
   const list = h("div.comments");
   const composer = buildComposer();
 
+  let shownCard = null;
+  let loaded = false;
+
   async function load() {
+    // Пост уже был в ленте — показываем его сразу, комментарии догрузятся.
+    if (!loaded && !post && postCache.has(postId)) {
+      post = postCache.get(postId);
+      render({ commentsLoading: true });
+    }
     try {
       const data = await api.get(`/api/posts/${postId}`);
+      const cardChanged = !post || JSON.stringify(post) !== JSON.stringify(data.post);
       post = data.post;
+      postCache.set(postId, post);
       comments = data.comments;
+      byId.clear();
       comments.forEach((c) => byId.set(c.id, c));
-      render();
+      loaded = true;
+      render({ keepCard: !cardChanged });
     } catch (err) {
       scroller.replaceChildren(
         err.status === 404 ? emptyState("🕳", "Поста нет", err.message, h("button.btn", { onclick: back }, "Назад")) : errorState(err, load)
@@ -38,14 +50,19 @@ export function postScreen({ id, comment }) {
     }
   }
 
-  function render() {
+  function render({ commentsLoading = false, keepCard = false } = {}) {
+    if (!keepCard || !shownCard) shownCard = postCard(post, { full: true, showScope: true, onRemove: back, appear: !shownCard });
     scroller.replaceChildren(
-      postCard(post, { full: true, showScope: true, onRemove: back }),
-      h("div.comments-title", comments.length ? `Комментарии · ${comments.length}` : "Комментарии"),
+      shownCard,
+      h("div.comments-title", commentsLoading ? "Комментарии" : comments.length ? `Комментарии · ${comments.length}` : "Комментарии"),
       list
     );
     list.replaceChildren(
-      ...(comments.length ? comments.map((c, i) => commentEl(c, i)) : [h("div.comments-empty", "Будьте первым — напишите, что думаете")])
+      ...(commentsLoading
+        ? [h("div.comment-skeleton", h("div.sk-circle"), h("div.sk-lines", h("div.sk-line.w40"), h("div.sk-line.w90")))]
+        : comments.length
+          ? comments.map((c, i) => commentEl(c, i))
+          : [h("div.comments-empty", "Будьте первым — напишите, что думаете")])
     );
     if (post.hidden === 0) el.append(composer.el);
     composer.sync();
@@ -60,7 +77,7 @@ export function postScreen({ id, comment }) {
   }
 
   function commentEl(c, index = 0) {
-    const name = c.anonymous ? (c.anon_no === 0 ? "Автор поста" : `Аноним ${c.anon_no}`) : c.author.name;
+    const name = nameOf(c);
     const parent = c.reply_to ? byId.get(c.reply_to) : null;
     const node = h(
       "div.comment.appear" + (c.mine ? ".mine" : ""),
@@ -133,7 +150,8 @@ export function postScreen({ id, comment }) {
     });
   }
 
-  const nameOf = (c) => (c.anonymous ? (c.anon_no === 0 ? "Автор поста" : `Аноним ${c.anon_no}`) : c.author.name);
+  const nameOf = (c) =>
+    c.anonymous ? (c.anon_no === 0 ? "Автор поста" : c.anon_no == null ? "Вы, анонимно" : `Аноним ${c.anon_no}`) : c.author.name;
 
   function commentMenu(c, node) {
     actionSheet([
@@ -188,8 +206,7 @@ export function postScreen({ id, comment }) {
       },
       icon("mask")
     );
-    const send = h("button.send", { "aria-label": "Отправить", onclick: submit }, icon("send"));
-    let sending = false;
+    const send = h("button.send", { "aria-label": "Отправить", onclick: () => submit() }, icon("send"));
 
     input.addEventListener("input", sync);
     input.addEventListener("keydown", (e) => {
@@ -206,7 +223,7 @@ export function postScreen({ id, comment }) {
       }
       anonBtn.classList.toggle("on", anonymous);
       input.placeholder = anonymous ? "Анонимный комментарий…" : "Комментарий…";
-      send.disabled = sending || !input.value.trim();
+      send.disabled = !input.value.trim();
       replyBar.replaceChildren();
       replyBar.hidden = !replyTo;
       if (replyTo) {
@@ -218,33 +235,62 @@ export function postScreen({ id, comment }) {
       }
     }
 
-    async function submit() {
-      const text = input.value.trim();
-      if (!text || sending) return;
+    /**
+     * Комментарий появляется сразу — полупрозрачным, пока сервер его не
+     * принял. Не принял — строка краснеет, касание отправляет заново.
+     */
+    function submit(retry) {
+      const text = retry?.text ?? input.value.trim();
+      if (!text) return;
       if (!store.me?.faculty) return go("/onboarding");
-      sending = true;
-      sync();
-      try {
-        const res = await api.post(`/api/posts/${postId}/comments`, { text, anonymous, reply_to: replyTo?.id || null });
-        haptic.success();
-        const c = res.comment;
-        byId.set(c.id, c);
-        comments.push(c);
-        post.comments++;
+      const draft = retry || {
+        id: `tmp${Date.now()}`,
+        author: anonymous ? null : store.me,
+        anonymous,
+        anon_no: null,
+        is_op: false,
+        mine: true,
+        reply_to: replyTo?.id || null,
+        text,
+        created_at: Math.floor(Date.now() / 1000),
+        can_delete: false,
+      };
+      let node = retry?.node;
+      if (!retry) {
         list.querySelector(".comments-empty")?.remove();
-        const node = commentEl(c);
+        node = commentEl(draft);
         list.append(node);
-        node.scrollIntoView({ block: "end", behavior: "smooth" });
+        requestAnimationFrame(() => node.scrollIntoView({ block: "end", behavior: "smooth" }));
         input.value = "";
         replyTo = null;
         grow();
-      } catch (err) {
-        haptic.error();
-        toast(err.message, "error");
-      } finally {
-        sending = false;
         sync();
+        haptic.tap();
       }
+      node.classList.add("pending");
+      node.classList.remove("failed");
+      node.querySelector(".comment-foot span").textContent = "отправляется…";
+
+      api
+        .post(`/api/posts/${postId}/comments`, { text, anonymous: draft.anonymous, reply_to: draft.reply_to })
+        .then((res) => {
+          haptic.success();
+          const c = res.comment;
+          byId.set(c.id, c);
+          comments.push(c);
+          post.comments++;
+          const real = commentEl(c);
+          real.classList.remove("appear");
+          node.replaceWith(real);
+        })
+        .catch((err) => {
+          haptic.error();
+          toast(err.message, "error");
+          node.classList.remove("pending");
+          node.classList.add("failed");
+          node.querySelector(".comment-foot span").textContent = "не отправлено — коснитесь, чтобы повторить";
+          node.addEventListener("click", () => submit({ ...draft, node }), { once: true });
+        });
     }
 
     const el = h("div.composer", replyBar, h("div.composer-row", anonBtn, input, send));

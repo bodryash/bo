@@ -17,6 +17,28 @@ import { h, icon } from "./ui.js";
 
 setup();
 
+/**
+ * Клавиатура. Пока пишут — нижняя панель прячется (иначе она всплывает
+ * над клавиатурой и закрывает текст). Когда клавиатура уходит, iOS
+ * оставляет страницу сдвинутой, и нажатия по нижней панели попадают
+ * мимо кнопок — возвращаем страницу на место.
+ */
+const isField = (el) => el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !["checkbox", "radio", "file"].includes(el.type)));
+document.addEventListener("focusin", (e) => {
+  if (isField(e.target)) document.body.classList.add("typing");
+});
+document.addEventListener("focusout", () => {
+  setTimeout(() => {
+    if (isField(document.activeElement)) return;
+    document.body.classList.remove("typing");
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = document.body.scrollTop = 0;
+  }, 60);
+});
+window.Telegram?.WebApp?.onEvent?.("viewportChanged", (e) => {
+  if (e?.isStateStable && !isField(document.activeElement)) window.scrollTo(0, 0);
+});
+
 // Отклик на любое нажатие: всё, что кнопка, — щёлкает. Если кнопка сама
 // уже вибрировала (выбор, успех), повтор проглотит vibrate().
 document.addEventListener(
@@ -97,6 +119,7 @@ function buildTabbar() {
           "aria-label": label || "Новый пост",
           onclick: () => {
             haptic.select();
+            if (isField(document.activeElement)) document.activeElement.blur();
             btn.classList.remove("bounce");
             void btn.offsetWidth;
             btn.classList.add("bounce");

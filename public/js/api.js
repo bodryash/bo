@@ -8,7 +8,32 @@ export class ApiError extends Error {
   }
 }
 
+// Полоска загрузки сверху: появляется, только если запрос идёт дольше
+// 250 мс — быстрые ответы не мигают.
+let inflight = 0;
+let barTimer = null;
+function busy(delta) {
+  inflight += delta;
+  clearTimeout(barTimer);
+  if (inflight > 0) barTimer = setTimeout(() => document.body.classList.add("loading"), 250);
+  else document.body.classList.remove("loading");
+}
+
+// Счётчик действий: лента, пришедшая после лайка или голоса, но
+// запрошенная до них, не должна затирать то, что человек уже видит.
+export const writes = { n: 0 };
+
 async function request(method, path, body, headers = {}) {
+  if (method !== "GET") writes.n++;
+  busy(1);
+  try {
+    return await send(method, path, body, headers);
+  } finally {
+    busy(-1);
+  }
+}
+
+async function send(method, path, body, headers) {
   let response;
   try {
     response = await fetch(path, {
@@ -69,4 +94,10 @@ export function postLink(id) {
 }
 
 // Демо хранит фото в памяти страницы и отдаёт их своими адресами.
+/**
+ * Посты, которые уже видны в ленте: пост открывается из них мгновенно,
+ * а свежие данные и комментарии подтягиваются следом.
+ */
+export const postCache = new Map();
+
 export const imageUrl = (key) => window.POTOK_DEMO?.imageUrl(key) || `/img/${key}`;
