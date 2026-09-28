@@ -9,6 +9,7 @@ import { go } from "./router.js";
 import { haptic, openLink } from "./tg.js";
 import { actionSheet, ago, avatar, confirmDialog, eventBadge, eventDate, formatPrice, h, icon, plural, richText, toast } from "./ui.js";
 import { openViewer } from "./viewer.js";
+import { banSheet } from "./profile.js";
 import { bump, heartBurst, pressable } from "./gestures.js";
 
 const CLOSED_LABEL = { market: "Продано", lost: "Нашлось", housing: "Уже не актуально" };
@@ -32,6 +33,7 @@ export function postCard(post, { full = false, showScope = false, onRemove, inde
   });
 
   card.append(header(post, { showScope, onRemove, card }));
+  if (post.mod_author) card.append(modAuthor(post.mod_author));
   if (post.hidden === 1) card.append(h("div.notice.warn", "Пост скрыт жалобами и ждёт решения модератора. Остальным он не виден."));
   if (post.rubric === "event" && post.event_at) card.append(eventBlock(post));
   if (post.rubric === "market" && post.price !== null) card.append(h("div.price", formatPrice(post.price)));
@@ -73,6 +75,21 @@ function header(post, { showScope, onRemove, card }) {
     h("button.icon-btn.more", { "aria-label": "Ещё", onclick: () => postMenu(post, { onRemove, card }) }, icon("more"))
   );
   return headerEl;
+}
+
+/**
+ * Автор анонимки — только на экране модератора. Остальным это поле
+ * сервер вообще не присылает.
+ */
+export function modAuthor(author) {
+  return h(
+    "button.mod-reveal",
+    { onclick: (e) => (e.stopPropagation(), go(`/u/${author.id}`)) },
+    icon("shield"),
+    h("span", "Видно модератору: "),
+    h("b", author.name),
+    author.faculty ? h("span", " · " + studentLine(author)) : null
+  );
 }
 
 function eventBlock(post) {
@@ -294,6 +311,24 @@ function postMenu(post, { onRemove, card }) {
         },
       },
     !post.mine && { label: "Пожаловаться", icon: "flag", onClick: () => reportSheet(`p:${post.id}`) },
+    store.me?.admin &&
+      !post.mine && {
+        label: "Удалить и забанить автора",
+        icon: "shield",
+        danger: true,
+        onClick: () =>
+          banSheet(post.author || post.mod_author, async (days) => {
+            try {
+              const res = await api.post("/api/admin/act", { target: `p:${post.id}`, action: "ban", days });
+              haptic.warning();
+              toast(res.result);
+              card.remove();
+              onRemove?.();
+            } catch (err) {
+              toast(err.message, "error");
+            }
+          }),
+      },
     post.can_delete && {
       label: post.mine ? "Удалить пост" : "Удалить (модератор)",
       icon: "trash",

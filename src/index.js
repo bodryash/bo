@@ -14,6 +14,8 @@ import { report } from "./moderation.js";
 import { listNotifications } from "./notify.js";
 import { closePost, createPost, deletePost, feed, getPostView, likePost, postQuery, search, votePost } from "./posts.js";
 import { checkWebhook, handleSetup } from "./setup.js";
+import { follow, followList, suggestions } from "./social.js";
+import { act, banById, bans, queue } from "./admin.js";
 import { getMe, getProfile, updateMe, viewer } from "./users.js";
 import { DAY, HttpError, json, now, readJson } from "./util.js";
 
@@ -22,6 +24,14 @@ const ROUTES = [
   ["GET", "/api/me", (c) => getMe(c.env, c.user, c.url)],
   ["POST", "/api/me", async (c) => updateMe(c.env, c.user, await readJson(c.request))],
   ["GET", "/api/users/:id", (c) => getProfile(c.env, c.user, c.id)],
+  ["POST", "/api/users/:id/follow", async (c) => follow(c.env, c.user, c.id, await readJson(c.request), c.ctx)],
+  ["GET", "/api/users/:id/followers", (c) => followList(c.env, c.user, c.id, "followers")],
+  ["GET", "/api/users/:id/following", (c) => followList(c.env, c.user, c.id, "following")],
+  ["GET", "/api/people/suggest", (c) => suggestions(c.env, c.user)],
+  ["GET", "/api/admin/queue", (c) => queue(c.env, c.user)],
+  ["POST", "/api/admin/act", async (c) => act(c.env, c.user, await readJson(c.request)), { fresh: true }],
+  ["GET", "/api/admin/bans", (c) => bans(c.env, c.user)],
+  ["POST", "/api/admin/users/:id/ban", async (c) => banById(c.env, c.user, c.id, await readJson(c.request)), { fresh: true }],
   ["GET", "/api/feed", (c) => feed(c.env, c.user, c.url.searchParams)],
   ["GET", "/api/search", (c) => search(c.env, c.user, c.url.searchParams.get("q"))],
   ["POST", "/api/posts", async (c) => createPost(c.env, c.user, await readJson(c.request)), { fresh: true }],

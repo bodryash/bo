@@ -1,4 +1,5 @@
 import { api, store, writes } from "./api.js";
+import { peopleList } from "./people.js";
 import { myFacultyShort, postCard } from "./card.js";
 import { FACULTY, RUBRICS } from "./data.js";
 import { go } from "./router.js";
@@ -23,6 +24,14 @@ function savePrefs(prefs) {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {}
+}
+
+// Что открыто в ленте сейчас — для «+»: новый пост сразу туда же.
+let current = { rubric: "", scope: "fac" };
+export function composePath() {
+  const rubric = current.rubric || "talk";
+  const scope = current.scope === "msu" ? "msu" : "fac";
+  return `/new/${rubric}/${scope}`;
 }
 
 const EMPTY = {
@@ -57,19 +66,20 @@ export function feedScreen({ fixedScope = null } = {}) {
     ? null
     : h(
         "div.segmented",
-        ["fac", "msu"].map((s) =>
+        ["fac", "msu", "subs"].map((s) =>
           (scopeBtns[s] = h(
             "button",
             {
               onclick: () => {
                 if (prefs.scope === s) return;
                 haptic.select();
+                const prevScope = prefs.scope;
                 prefs.scope = s;
                 paintControls();
-                leaveThen(s === "msu" ? 1 : -1, false, changed);
+                leaveThen(["fac", "msu", "subs"].indexOf(s) > ["fac", "msu", "subs"].indexOf(prevScope) ? 1 : -1, false, changed);
               },
             },
-            s === "fac" ? myFacultyShort() : "Весь МГУ"
+            s === "fac" ? myFacultyShort() : s === "msu" ? "МГУ" : "Подписки"
           ))
         )
       );
@@ -183,7 +193,10 @@ export function feedScreen({ fixedScope = null } = {}) {
   });
 
   function changed() {
-    if (!fixedScope) savePrefs(prefs);
+    if (!fixedScope) {
+      savePrefs(prefs);
+      current = { rubric: prefs.rubric, scope: prefs.scope };
+    }
     paintControls();
     reload();
   }
@@ -262,6 +275,7 @@ export function feedScreen({ fixedScope = null } = {}) {
   }
 
   function empty() {
+    if (prefs.scope === "subs") return subsEmpty();
     const [emoji, title, text] = EMPTY[prefs.rubric] || EMPTY[""];
     const canWrite = !fixedScope || fixedScope === store.me?.faculty;
     // На факультете пока пусто — пусть человек увидит, что жизнь есть
@@ -270,13 +284,48 @@ export function feedScreen({ fixedScope = null } = {}) {
       !fixedScope && prefs.scope !== "msu"
         ? h("button.btn", { onclick: () => ((prefs.scope = "msu"), changed()) }, "Лента всего МГУ")
         : null;
+    const write = () => go(`/new/${prefs.rubric || "talk"}/${prefs.scope === "msu" ? "msu" : "fac"}`);
     return emptyState(
       emoji,
       title,
       text,
-      h("div.empty-actions", canWrite ? h("button.btn.primary", { onclick: () => go("/new") }, "Написать пост") : null, toMsu)
+      h("div.empty-actions", canWrite ? h("button.btn.primary", { onclick: write }, "Написать пост") : null, toMsu)
     );
   }
+
+  /** Подписок нет или они молчат — предлагаем, кого почитать. */
+  function subsEmpty() {
+    const box = h(
+      "div.subs-empty",
+      emptyState("👥", "Здесь посты тех, на кого вы подписаны", "Подпишитесь на однокурсников — их новые посты будут собираться здесь.")
+    );
+    api
+      .get("/api/people/suggest")
+      .then(({ users }) => {
+        if (users.length) box.append(h("div.section-label.pad", "Кого почитать"), peopleList(users, { onFollow: () => feedCache.clear() }));
+      })
+      .catch(() => {});
+    return box;
+  }
+
+  // Касание края ленты — соседняя рубрика, как в расписании: не только
+  // свайпом. Кнопки (лайк, автор) у края работают как обычно.
+  el.addEventListener(
+    "click",
+    (e) => {
+      const zone = Math.min(44, innerWidth * 0.11);
+      const x = e.clientX;
+      if (x > zone && x < innerWidth - zone) return;
+      if (e.target.closest("button, a, input, textarea, .topbar, .chips, .sortbar, .poll, .media, .sheet")) return;
+      const dir = x <= zone ? -1 : 1;
+      const i = RUBRIC_ORDER.indexOf(prefs.rubric) + dir;
+      e.preventDefault();
+      e.stopPropagation();
+      if (i < 0 || i >= RUBRIC_ORDER.length) return haptic.warning();
+      selectRubric(RUBRIC_ORDER[i], dir);
+    },
+    true
+  );
 
   // Подгрузка при приближении к концу списка.
   const observer = new IntersectionObserver(
@@ -301,6 +350,7 @@ export function feedScreen({ fixedScope = null } = {}) {
   };
   window.addEventListener("potok:post", onNewPost);
 
+  if (!fixedScope) current = { rubric: prefs.rubric, scope: prefs.scope };
   paintControls();
   reload();
 

@@ -2551,3 +2551,276 @@ body.typing .tabbar {
   width: 34px;
   height: 34px;
 }
+
+/* ——— профиль: счётчики, подписка, модератор ——— */
+
+.profile-stats {
+  gap: 4px;
+  width: 100%;
+  justify-content: space-around;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 64px;
+  padding: 4px 6px;
+  border-radius: 12px;
+  color: var(--hint);
+  font-size: 12.5px;
+}
+
+button.stat:active {
+  background: var(--soft);
+}
+
+.stat b {
+  color: var(--text);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+}
+
+.profile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.profile-actions.row {
+  flex-direction: row;
+}
+
+.profile-actions.row > * {
+  flex: 1;
+}
+
+.follow-btn {
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 14px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 650;
+  font-size: 15.5px;
+  transition: background 0.2s, color 0.2s, transform 0.14s cubic-bezier(0.3, 0.7, 0.4, 1.5);
+}
+
+.follow-btn.on {
+  background: var(--soft);
+  color: var(--text);
+}
+
+.follow-btn.small {
+  flex: none;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+
+.person {
+  cursor: pointer;
+}
+
+.person-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.follows-me {
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--hint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mod-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 2px 8px 2px 5px;
+  border-radius: 8px;
+  background: rgba(229, 72, 77, 0.12);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 700;
+  vertical-align: 3px;
+}
+
+.mod-tag .icon,
+.mod-reveal .icon,
+.brand-small .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.mod-panel {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(229, 72, 77, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(229, 72, 77, 0.2);
+  text-align: left;
+  font-size: 14px;
+}
+
+.mod-status > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.mod-banned {
+  margin-top: 6px;
+  color: var(--danger);
+}
+
+.mod-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.mod-actions .btn {
+  flex: 1;
+  min-height: 38px;
+  padding: 0 10px;
+  font-size: 14px;
+}
+
+.btn.danger-btn {
+  background: rgba(229, 72, 77, 0.14);
+  color: var(--danger);
+}
+
+.mod-btn {
+  color: var(--danger);
+}
+
+/* Автор анонимки — видно только модератору */
+.mod-reveal {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin: -4px 0 10px;
+  padding: 4px 9px 4px 6px;
+  border-radius: 9px;
+  background: rgba(229, 72, 77, 0.1);
+  color: var(--danger);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.comment .mod-reveal {
+  margin: 4px 0 2px;
+}
+
+/* ——— экран модерации ——— */
+
+.brand-small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mod-tabs {
+  padding: 0 10px 8px;
+}
+
+.mod-item {
+  margin: 6px 10px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  transition: opacity 0.25s, transform 0.25s;
+}
+
+.mod-item.done {
+  opacity: 0;
+  transform: translateX(40px);
+}
+
+.mod-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mod-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.mod-author span {
+  display: block;
+  color: var(--hint);
+  font-size: 12.5px;
+}
+
+.mod-kind {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--hint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mod-kind.hidden {
+  background: rgba(229, 72, 77, 0.12);
+  color: var(--danger);
+}
+
+.mod-anon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--hint);
+  font-size: 12.5px;
+}
+
+.mod-anon .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.mod-text {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  font-size: 15px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mod-reasons {
+  margin-top: 6px;
+  color: var(--hint);
+  font-size: 12.5px;
+}
+
+.subs-empty .people {
+  margin-bottom: 12px;
+}

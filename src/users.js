@@ -1,5 +1,5 @@
 import { FACULTY, LEVEL, LIMITS } from "../public/js/data.js";
-import { botUsername } from "./setup.js";
+import { botUsername, getSetting } from "./setup.js";
 import { cleanText, charCount, fail, isAdminTg, now, searchKey, verifyInitData } from "./util.js";
 
 // Имя и аватар обновляем не на каждом запросе, а если что-то поменялось или
@@ -147,6 +147,9 @@ export async function getMe(env, user, url) {
     unread,
     config: {
       bot: (await botUsername(env)) || null,
+      // Главное мини-приложение включено в BotFather — ссылки открывают
+      // приложение сразу, без переписки с ботом.
+      main_app: (await getSetting(env, "main_app")) === "1",
       app: env.APP_NAME || null,
       origin: url.origin,
     },
@@ -195,15 +198,28 @@ export async function getProfile(env, viewerUser, id) {
   if (!u) fail(404, "Такого человека нет");
   // Анонимные посты в счётчик не входят: иначе по разнице между числом и
   // видимым списком можно было бы вычислить, что человек пишет анонимно.
-  const stats = await env.DB.prepare(
-    `SELECT COUNT(*) AS posts, COALESCE(SUM(likes), 0) AS likes
-     FROM posts WHERE author_id = ? AND anonymous = 0 AND hidden = 0`
-  )
-    .bind(u.id)
-    .first();
+  const [stats, rel] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS posts, COALESCE(SUM(likes), 0) AS likes,
+         (SELECT COUNT(*) FROM follows WHERE followee_id = ?) AS followers,
+         (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following
+       FROM posts WHERE author_id = ? AND anonymous = 0 AND hidden = 0`
+    ).bind(u.id, u.id, u.id),
+    env.DB.prepare(
+      `SELECT EXISTS (SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?) AS am_following,
+              EXISTS (SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?) AS follows_me`
+    ).bind(viewerUser.id, u.id, u.id, viewerUser.id),
+  ]);
+  const r = rel.results[0];
   return {
     user: { ...publicUser(u), bio: u.bio || "", created_at: u.created_at },
-    stats,
+    stats: stats.results[0],
+    following: !!r.am_following,
+    follows_me: !!r.follows_me,
     self: u.id === viewerUser.id,
+    // Модератору — то, что нужно для решения: ник (даже скрытый) и бан.
+    mod: viewerUser.admin
+      ? { username: u.username, banned_until: u.banned_until > now() ? u.banned_until : 0, ban_reason: u.ban_reason, admin: isAdminTg(env, u.tg_id) }
+      : undefined,
   };
 }

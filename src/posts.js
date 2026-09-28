@@ -58,6 +58,9 @@ export async function hydrate(env, rows, viewerUser) {
     return {
       id: r.id,
       author: r.anonymous ? null : authorFromRow(r),
+      // Модератор видит, кто стоит за анонимкой, — чтобы не хулиганили.
+      // Больше никто: поле просто не попадает в ответ.
+      mod_author: r.anonymous && viewerUser.admin ? authorFromRow(r) : undefined,
       anonymous: !!r.anonymous,
       mine,
       scope: r.scope,
@@ -106,13 +109,20 @@ export async function feed(env, viewerUser, params) {
   const author = params.get("author");
   if (author) return authorFeed(env, viewerUser, Number(author), params);
 
-  const scope = resolveScope(params.get("scope"), viewerUser);
   const rubric = params.get("rubric") || "";
   if (rubric && !RUBRIC[rubric]) fail(400, "Нет такой рубрики");
   const sort = params.get("sort") || "new";
 
-  const where = ["p.scope = ?", "p.hidden = 0"];
-  const args = [scope];
+  let where;
+  let args;
+  if (params.get("scope") === "subs") {
+    // Подписки: открытые посты тех, на кого подписан, со всего МГУ.
+    where = ["p.hidden = 0", "p.anonymous = 0", "p.author_id IN (SELECT followee_id FROM follows WHERE follower_id = ?)"];
+    args = [viewerUser.id];
+  } else {
+    where = ["p.scope = ?", "p.hidden = 0"];
+    args = [resolveScope(params.get("scope"), viewerUser)];
+  }
   if (rubric) {
     where.push("p.rubric = ?");
     args.push(rubric);

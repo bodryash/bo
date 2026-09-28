@@ -45,13 +45,21 @@ export async function notify(env, { kind, userId, postId, commentId = null, acto
     if (!target?.notify || !target.can_dm || t - target.pushed_at < PUSH_COOLDOWN) return;
 
     const who = anonymous ? "Аноним" : escapeHtml(displayName(actor));
-    const what = kind === "reply" ? "ответил(а) на ваш комментарий" : "прокомментировал(а) ваш пост";
+    const follow = kind === "follow";
+    const what = follow ? "подписался(ась) на вас" : kind === "reply" ? "ответил(а) на ваш комментарий" : "прокомментировал(а) ваш пост";
     const res = await callTelegram(env, "sendMessage", {
       chat_id: target.tg_id,
       parse_mode: "HTML",
-      text: `💬 <b>${who}</b> ${what}:\n\n${escapeHtml(clip(text, 300))}`,
+      text: follow ? `👋 <b>${who}</b> ${what}` : `💬 <b>${who}</b> ${what}:\n\n${escapeHtml(clip(text, 300))}`,
       reply_markup: {
-        inline_keyboard: [[{ text: "Открыть", web_app: { url: appUrl(env, `#/p/${postId}${commentId ? `/c${commentId}` : ""}`) } }]],
+        inline_keyboard: [
+          [
+            {
+              text: follow ? "Профиль" : "Открыть",
+              web_app: { url: appUrl(env, follow ? `#/u/${actorId}` : `#/p/${postId}${commentId ? `/c${commentId}` : ""}`) },
+            },
+          ],
+        ],
       },
       disable_notification: false,
     });
@@ -77,7 +85,7 @@ export async function listNotifications(env, user) {
     `SELECT n.*, p.text AS post_text, p.hidden AS post_hidden, p.likes AS post_likes, c.text AS comment_text,
             a.id AS a_id, a.first_name AS a_first_name, a.last_name AS a_last_name, a.photo_url AS a_photo_url
      FROM notifications n
-     JOIN posts p ON p.id = n.post_id
+     LEFT JOIN posts p ON p.id = n.post_id
      LEFT JOIN comments c ON c.id = n.comment_id
      LEFT JOIN users a ON a.id = n.actor_id
      WHERE n.user_id = ? ORDER BY n.created_at DESC LIMIT 60`
@@ -91,7 +99,7 @@ export async function listNotifications(env, user) {
 
   return {
     items: results
-      .filter((n) => n.post_hidden !== 2)
+      .filter((n) => n.kind === "follow" || (n.post_hidden !== null && n.post_hidden !== 2))
       .map((n) => ({
         id: n.id,
         kind: n.kind,

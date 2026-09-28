@@ -22,11 +22,13 @@ const PLACEHOLDERS = {
  * Новый пост. Черновик сохраняется на телефоне, чтобы случайный свайп
  * назад не стирал длинный текст.
  */
-export function composeScreen() {
+export function composeScreen({ rubric: presetRubric, scope: presetScope } = {}) {
   const draft = loadDraft();
+  // Нажали «Написать» в «Учёбе» — форма сразу в «Учёбе» и в том же
+  // разделе (факультет или весь МГУ), а не в том, что было в черновике.
   const state = {
-    scope: draft.scope || "fac",
-    rubric: draft.rubric || "talk",
+    scope: presetScope === "msu" || presetScope === "fac" ? presetScope : draft.scope || "fac",
+    rubric: RUBRIC[presetRubric] ? presetRubric : draft.rubric || "talk",
     text: draft.text || "",
     anonymous: !!draft.anonymous,
     price: draft.price ?? "",

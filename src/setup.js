@@ -62,6 +62,7 @@ export async function ensureBot(env, origin) {
   const me = await tg(env, "getMe", {});
   if (!me.ok) fail(502, `Telegram не принял токен: ${me.error || "нет ответа"}`);
   await setSetting(env, "bot_username", me.result.username);
+  await setSetting(env, "main_app", me.result.has_main_web_app ? "1" : "0");
   await setSetting(env, "app_url", origin);
   steps.bot = "@" + me.result.username;
 
@@ -105,6 +106,9 @@ export async function ensureBot(env, origin) {
 export async function checkWebhook(env) {
   const appUrl = await getSetting(env, "app_url");
   if (!appUrl || !env.BOT_TOKEN) return;
+  // Заодно — не включили ли в BotFather главное мини-приложение.
+  const me = await tg(env, "getMe", {});
+  if (me.ok) await setSetting(env, "main_app", me.result.has_main_web_app ? "1" : "0");
   const info = await tg(env, "getWebhookInfo", {});
   if (info.ok && info.result?.url !== `${appUrl}/tg`) {
     console.log("webhook drifted:", info.result?.url, "→ restoring");

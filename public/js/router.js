@@ -145,7 +145,7 @@ function render() {
     screen.el.classList.add("screen", "pushed");
     screen.el.__screen = screen;
     // Вне Telegram его кнопки «назад» нет — рисуем свою полосу сверху.
-    if (!insideTelegram && !OWN_BACK.has(path)) {
+    if (!insideTelegram && !OWN_BACK.has(path) && !path.startsWith("/new/")) {
       screen.el.prepend(h("div.backbar", h("button", { onclick: () => back() }, icon("back"), "Назад")));
     }
     root.append(screen.el);

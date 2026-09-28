@@ -4,6 +4,9 @@
 
 import { refreshMe, store } from "./api.js";
 import { composeScreen } from "./compose.js";
+import { modScreen } from "./mod.js";
+import { peopleScreen } from "./people.js";
+import { composePath } from "./feed.js";
 import { errorState, feedScreen } from "./feed.js";
 import { notificationsScreen } from "./notifications.js";
 import { onboardingScreen } from "./onboarding.js";
@@ -59,6 +62,10 @@ route("/search", () => searchScreen(), { tab: true });
 route("/notif", () => notificationsScreen(), { tab: true });
 route("/me", () => profileScreen(), { tab: true });
 route("/new", () => composeScreen());
+route("/new/:rubric", (p) => composeScreen(p));
+route("/new/:rubric/:scope", (p) => composeScreen(p));
+route("/mod", () => modScreen());
+route("/u/:id/:list", (p) => peopleScreen(p));
 route("/p/:id", (p) => postScreen(p));
 route("/p/:id/:comment", (p) => postScreen(p));
 route("/u/:id", (p) => (Number(p.id) === store.me?.id ? profileScreen() : profileScreen(p)));
@@ -123,7 +130,8 @@ function buildTabbar() {
             btn.classList.remove("bounce");
             void btn.offsetWidth;
             btn.classList.add("bounce");
-            go(path);
+            // «+» с ленты — сразу в ту рубрику и раздел, что открыты.
+            go(path === "/new" && currentPath() === "/" ? composePath() : path);
           },
         },
         icon(ic),

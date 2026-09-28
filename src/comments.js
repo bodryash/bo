@@ -29,6 +29,7 @@ function serialize(c, post, viewerUser) {
   return {
     id: c.id,
     author: c.anonymous ? null : authorFromRow(c),
+    mod_author: c.anonymous && viewerUser.admin ? authorFromRow(c) : undefined,
     anonymous: !!c.anonymous,
     anon_no: c.anonymous ? c.anon_no : null,
     // «Автор» у открытого поста — по совпадению, у анонимного — только если

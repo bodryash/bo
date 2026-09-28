@@ -395,6 +395,76 @@ await step("поиск", async () => {
   assert.ok(u.users.some((x) => x.name === "Вера"));
 });
 
+await step("подписки: подписаться, счётчики, лента, уведомление", async () => {
+  const veraMe = (await vera.get("/api/me")).me;
+  const anyaMe = (await anya.get("/api/me")).me;
+  const self = await anya.post(`/api/users/${anyaMe.id}/follow`, { on: true });
+  assert.equal(self.status, 400, "на себя нельзя");
+  let r = await anya.post(`/api/users/${veraMe.id}/follow`, { on: true });
+  assert.equal(r.following, true);
+  assert.equal(r.followers, 1);
+  r = await anya.post(`/api/users/${veraMe.id}/follow`, { on: true });
+  assert.equal(r.followers, 1, "повторная подписка не считается");
+  const profile = await anya.get(`/api/users/${veraMe.id}`);
+  assert.equal(profile.following, true);
+  assert.equal(profile.stats.followers, 1);
+  const back = await vera.get(`/api/users/${anyaMe.id}`);
+  assert.equal(back.follows_me, true);
+  const followers = await boris.get(`/api/users/${veraMe.id}/followers`);
+  assert.ok(followers.users.some((u) => u.id === anyaMe.id));
+  const subs = await anya.get("/api/feed?scope=subs");
+  assert.ok(subs.posts.length && subs.posts.every((p) => p.author?.id === veraMe.id), "в подписках — только Вера, и не анонимно");
+  const notes = await vera.get("/api/notifications");
+  assert.ok(notes.items.some((n) => n.kind === "follow" && n.actor?.id === anyaMe.id), "Вере пришло «подписалась»");
+  r = await anya.post(`/api/users/${veraMe.id}/follow`, { on: false });
+  assert.equal(r.followers, 0);
+  const empty = await anya.get("/api/feed?scope=subs");
+  assert.equal(empty.posts.length, 0);
+});
+
+await step("модератор видит автора анонимки, остальные — нет", async () => {
+  const borisMe = (await boris.get("/api/me")).me;
+  const forAdmin = (await admin.get(`/api/posts/${confessId}`)).post;
+  assert.equal(forAdmin.author, null);
+  assert.equal(forAdmin.mod_author.id, borisMe.id);
+  const forOthers = await dima.get(`/api/posts/${confessId}`);
+  assert.equal(forOthers.post.mod_author, undefined);
+  // Во всём ответе ни одного автора с id Бориса — ни у поста, ни у комментариев.
+  const authors = [];
+  JSON.stringify(forOthers, (k, v) => {
+    if ((k === "author" || k === "mod_author") && v) authors.push(v.id);
+    return v;
+  });
+  assert.ok(!authors.includes(borisMe.id), "автора анонимки не видно ни в одном поле");
+  const anonComment = forOthers.comments.find((c) => c.anonymous);
+  assert.equal(anonComment.mod_author, undefined);
+  assert.ok((await admin.get(`/api/posts/${confessId}`)).comments.find((c) => c.anonymous).mod_author);
+});
+
+await step("модерация в приложении: очередь, решения, баны; не-модератору нельзя", async () => {
+  assert.equal((await dima.get("/api/admin/queue")).status, 403);
+  assert.equal((await dima.post("/api/admin/act", { target: `p:${confessId}`, action: "del" })).status, 403);
+  await gleb.post("/api/report", { target: `p:${talkId}`, reason: "spam" });
+  const q = await admin.get("/api/admin/queue");
+  const item = q.items.find((i) => i.target === `p:${talkId}`);
+  assert.ok(item && item.reasons.some((r) => /Спам/.test(r)), "пост с жалобой в очереди, с причиной");
+  const spam = await dima.post("/api/posts", { rubric: "talk", text: "реклама курсов" });
+  const res = await admin.post("/api/admin/act", { target: `p:${spam.post.id}`, action: "ban", days: 1 });
+  assert.match(res.result, /забанен/);
+  const blocked = await dima.post("/api/posts", { rubric: "talk", text: "ещё реклама" });
+  assert.equal(blocked.code, "banned");
+  const list = await admin.get("/api/admin/bans");
+  const dimaMe = (await dima.get("/api/me")).me;
+  assert.ok(list.users.some((u) => u.id === dimaMe.id));
+  const unban = await admin.post(`/api/admin/users/${dimaMe.id}/ban`, { on: false });
+  assert.equal(unban.banned_until, 0);
+  const ok = await dima.post("/api/posts", { rubric: "talk", text: "исправился" });
+  assert.equal(ok.status, 200);
+  const prof = await admin.get(`/api/users/${dimaMe.id}`);
+  assert.equal(prof.mod.username, `u${dima.tgId}`);
+  assert.equal((await boris.get(`/api/users/${dimaMe.id}`)).mod, undefined);
+});
+
 await step("бан через бота запрещает писать", async () => {
   const me = await gleb.get("/api/me");
   await fetch(BASE + "/tg", {

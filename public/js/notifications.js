@@ -6,6 +6,7 @@ import { ago, avatar, emptyState, h, icon, spinner } from "./ui.js";
 const TEXT = {
   comment: "прокомментировал(а) ваш пост",
   reply: "ответил(а) на ваш комментарий",
+  follow: "подписался(ась) на вас",
 };
 
 export function notificationsScreen() {
@@ -41,16 +42,20 @@ export function notificationsScreen() {
       who = n.actor ? n.actor.name : "Аноним";
       what = TEXT[n.kind] || "";
     }
-    const badge = n.kind === "like" ? "heart" : n.kind === "reply" ? "reply" : "comment";
+    const badge = n.kind === "like" ? "heart" : n.kind === "reply" ? "reply" : n.kind === "follow" ? "user" : "comment";
+    const follow = n.kind === "follow";
     return h(
       "button.notif.appear" + (n.unread ? ".unread" : ""),
-      { style: { "--i": Math.min(index, 10) }, onclick: () => go(`/p/${n.post_id}${n.comment_id ? `/c${n.comment_id}` : ""}`) },
+      {
+        style: { "--i": Math.min(index, 10) },
+        onclick: () => go(follow ? `/u/${n.actor?.id}` : `/p/${n.post_id}${n.comment_id ? `/c${n.comment_id}` : ""}`),
+      },
       h("div.notif-avatar", avatar(n.actor, 44), h("span.notif-badge.kind-" + n.kind, icon(badge))),
       h(
         "div.notif-body",
         h("div.notif-title", h("b", who), " ", what),
         n.comment_text ? h("div.notif-comment", n.comment_text) : null,
-        h("div.notif-post", n.post_text || "Пост с фото"),
+        follow ? null : h("div.notif-post", n.post_text || "Пост с фото"),
         h("div.notif-time", ago(n.created_at))
       )
     );

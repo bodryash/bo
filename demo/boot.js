@@ -49,7 +49,9 @@ async function boot() {
   const schema = await (await fetch(new URL("../schema.sql", import.meta.url))).text();
   DB.raw.exec(schema);
 
-  const env = { DB, MEDIA, BOT_TOKEN: TOKEN, WEBHOOK_SECRET: "demo", ADMIN_IDS: "", BOT_USERNAME: "", APP_NAME: "", APP_URL: "" };
+  // Гость в демо — модератор: чтобы было видно, кто за анонимками, и экран
+  // «Модерация».
+  const env = { DB, MEDIA, BOT_TOKEN: TOKEN, WEBHOOK_SECRET: "demo", ADMIN_IDS: String(ME.id), BOT_USERNAME: "", APP_NAME: "", APP_URL: "" };
   const ctx = { waitUntil: (p) => p?.catch?.((e) => console.warn(e)) };
 
   const handle = (path, init = {}) => worker.fetch(new Request(ORIGIN + path, init), env, ctx);
@@ -227,6 +229,11 @@ async function seed(as, DB) {
 
   for (const [who, option] of [[p.anya, 0], [p.boris, 2], [p.sasha, 0], [p.vera, 1], [p.kirill, 0]]) {
     await as(who, "POST", `/api/posts/${poll.id}/vote`, { option });
+  }
+
+  for (const [a, b] of [[p.anya, p.dima], [p.dima, p.anya], [p.sasha, p.anya], [p.boris, p.anya], [p.kirill, p.gleb], [p.vera, p.gleb], [p.anya, p.gleb]]) {
+    const target = (await DB.prepare("SELECT id FROM users WHERE tg_id = ?").bind(b.id).first()).id;
+    await as(a, "POST", `/api/users/${target}/follow`, { on: true });
   }
 
   const comment = async (who, post, body) => (await as(who, "POST", `/api/posts/${post.id}/comments`, body)).comment.id;

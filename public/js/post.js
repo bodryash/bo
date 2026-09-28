@@ -1,5 +1,6 @@
 import { api, postCache, store } from "./api.js";
-import { postCard, reportSheet } from "./card.js";
+import { modAuthor, postCard, reportSheet } from "./card.js";
+import { banSheet } from "./profile.js";
 import { LIMITS, studentLine } from "./data.js";
 import { errorState, skeleton } from "./feed.js";
 import { back, go } from "./router.js";
@@ -92,6 +93,7 @@ export function postScreen({ id, comment }) {
           c.is_op ? h("span.op-tag", "автор") : null,
           c.author ? h("span.comment-sub", studentLine(c.author)) : null
         ),
+        c.mod_author ? modAuthor(c.mod_author) : null,
         c.reply_to
           ? h(
               "button.quote",
@@ -162,6 +164,23 @@ export function postScreen({ id, comment }) {
         onClick: () => navigator.clipboard?.writeText(c.text).then(() => toast("Скопировано"), () => {}),
       },
       !c.mine && { label: "Пожаловаться", icon: "flag", onClick: () => reportSheet(`c:${c.id}`) },
+      store.me?.admin &&
+        !c.mine && {
+          label: "Удалить и забанить автора",
+          icon: "shield",
+          danger: true,
+          onClick: () =>
+            banSheet(c.author || c.mod_author, async (days) => {
+              try {
+                const res = await api.post("/api/admin/act", { target: `c:${c.id}`, action: "ban", days });
+                haptic.warning();
+                toast(res.result);
+                node.remove();
+              } catch (err) {
+                toast(err.message, "error");
+              }
+            }),
+        },
       c.can_delete && {
         label: "Удалить",
         icon: "trash",

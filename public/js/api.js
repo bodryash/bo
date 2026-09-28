@@ -87,7 +87,9 @@ export async function refreshMe() {
 
 /** Ссылка на пост, которую можно переслать в любой чат. */
 export function postLink(id) {
-  const { bot, app, origin } = store.config;
+  const { bot, app, origin, main_app } = store.config;
+  // Главное мини-приложение включено — ссылка открывает пост сразу, без чата.
+  if (bot && main_app) return `https://t.me/${bot}?startapp=p${id}`;
   if (bot && app) return `https://t.me/${bot}/${app}?startapp=p${id}`;
   if (bot) return `https://t.me/${bot}?start=p${id}`;
   return `${origin || location.origin}/#/p/${id}`;

@@ -69,6 +69,7 @@ const ICONS = {
   reply: '<path d="M10 7 5 12l5 5"/><path d="M5.5 12H14a5 5 0 0 1 5 5v1"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
   back: '<path d="m15 5-7 7 7 7"/>',
+  shield: '<path d="M12 3.5 5 6v5.5c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6z"/><path d="m9 12 2 2 4-4"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
   settings:
     '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M18 6l-1.6 1.6M7.6 16.4 6 18M18 18l-1.6-1.6M7.6 7.6 6 6"/>',

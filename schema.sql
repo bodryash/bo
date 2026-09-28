@@ -124,7 +124,8 @@ CREATE TABLE IF NOT EXISTS reports (
 CREATE INDEX IF NOT EXISTS reports_user ON reports (user_id, created_at);
 
 -- kind: comment — ответ на пост, reply — ответ на комментарий,
--- like — лайки поста одной строкой со счётчиком, а не строка на каждый.
+-- like — лайки поста одной строкой со счётчиком, а не строка на каждый,
+-- follow — подписка (post_id = 0: поста тут нет).
 -- actor_id не отдаётся, если действие анонимное.
 CREATE TABLE IF NOT EXISTS notifications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,3 +140,13 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS notifications_user ON notifications (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS notifications_like ON notifications (user_id, post_id) WHERE kind = 'like';
+
+-- Подписки: кто на кого подписан. Лента «Подписки» — открытые посты тех,
+-- на кого подписан человек (анонимные туда не попадают никогда).
+CREATE TABLE IF NOT EXISTS follows (
+  follower_id INTEGER NOT NULL,
+  followee_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (follower_id, followee_id)
+);
+CREATE INDEX IF NOT EXISTS follows_followee ON follows (followee_id, created_at DESC);
